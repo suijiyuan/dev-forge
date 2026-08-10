@@ -46,7 +46,8 @@ dev-forge-1.95.3-win32-x64/
     └── settings.json
 ```
 
-同目录还会生成 `dev-forge-1.95.3-win32-x64.zip`。成功后，中间文件夹默认被保留；使用 `--archive-only` 可只保留 ZIP。
+同目录还会生成 `dev-forge-1.95.3-win32-x64.zip`。成功后，中间文件夹默认被保留；
+使用 `--archive-only` 可只保留 ZIP。
 
 ## 完整配置参考
 
@@ -144,18 +145,85 @@ VS Code Windows 发行包的下载配置。该对象本身以及 `version` 必�
 - 每项格式：Marketplace 扩展 ID `publisher.name`。
 - 示例：`"ms-python.python"`、`"esbenp.prettier-vscode"`。
 - ID 不区分大小写，读取后会转成小写；重复 ID 会保留第一次并自动去重。
-- ID 只能包含字母、数字、下划线、连字符和点，并且必须包含分隔 publisher 与 name 的第一个点。
+- ID 只能包含字母、数字、下划线、连字符和点，并且必须包含分隔 publisher 与 name
+  的第一个点。
 
-对于列表中的每个 ID，程序会读取 Marketplace 的全部可用版本，然后：
+#### 最合适版本的选择规则
 
-1. 排除预发布版本；
-2. 按扩展的 `engines.vscode` 排除与目标 VS Code 不兼容的版本；
-3. 排除为其他操作系统或架构构建的 VSIX；
-4. 在剩余版本中选择版本号最高的稳定版本；
-5. 同版本存在多个构建时，优先选择 `win32-x64` 或 `win32-arm64`，其次选择通用构建。
+Dev Forge 不会直接下载 Marketplace 中版本号最大的文件。它先排除不适合目标环境的版本，
+再从剩余候选中选择最高稳定版本。筛选所使用的目标环境来自 `vscode.version` 和
+`vscode.arch`。
 
-当前不支持在配置中固定某个扩展版本。程序只下载显式列出的 ID，也不会自动展开
-Extension Pack、`extensionDependencies` 或 `extensionPack` 成员。完全离线使用时，应把这些依赖也加入数组。
+对于列表中的每个扩展 ID，程序按照以下顺序处理：
+
+1. 查询 Marketplace 中该扩展的所有版本、版本属性、目标平台和 VSIX 地址；
+2. 排除标记为 Pre-release 的预发布版本；
+3. 读取 `Microsoft.VisualStudio.Code.Engine`，按 `engines.vscode` 约束检查目标 VS Code 版本；
+4. 排除 Linux、macOS 和其他 Windows 架构的专用构建；
+5. 在符合条件的候选项中，首先按语义化版本号选择最高版本；
+6. 同一个版本存在多个构建时，优先选择目标 Windows 架构的专用 VSIX，其次选择通用 VSIX；
+7. 使用 Marketplace 返回的 `Microsoft.VisualStudio.Services.VSIXPackage` 地址下载文件。
+
+选择优先级可以概括为：
+
+```text
+稳定版本且兼容目标 VS Code
+    ↓
+兼容目标 Windows 架构或属于通用构建
+    ↓
+选择版本号最高的候选项
+    ↓
+同版本时：平台专用 VSIX 优先于通用 VSIX
+```
+
+例如目标环境是 VS Code `1.132.0` 和 Windows x64：
+
+| 插件版本 | `engines.vscode` | 目标平台 | 处理结果 |
+| --- | --- | --- | --- |
+| `4.0.0` | `^1.133.0` | `universal` | VS Code 版本不兼容，排除 |
+| `3.6.0` | `^1.100.0` | `linux-x64` | 平台不兼容，排除 |
+| `3.5.0` | `^1.100.0` | `universal` | 保留为候选 |
+| `3.5.0` | `^1.100.0` | `win32-x64` | 同版本中优先选择 |
+| `3.4.0` | `^1.90.0` | `win32-x64` | 兼容，但版本较低 |
+
+如果较新的版本是通用 VSIX，而较旧版本是 Windows 专用 VSIX，程序会选择较新的通用版本。
+平台专用优先级只用于比较同一个插件版本的不同构建。
+
+版本兼容检查支持扩展清单中常用的 npm 风格约束：
+
+| 约束形式 | 示例 |
+| --- | --- |
+| 精确版本 | `1.90.0` |
+| 比较运算 | `>=1.90.0`、`>=1.90.0 <2.0.0` |
+| Caret | `^1.90.0` |
+| Tilde | `~1.90.0` |
+| 通配符 | `1.90.x`、`1.x`、`*` |
+| 连字符范围 | `1.90.0 - 1.100.0` |
+| OR 条件 | `^1.90.0 || ^1.100.0` |
+
+无法识别的版本约束会按“不兼容”处理，不会冒险下载可能无法安装的版本。
+如果没有任何稳定、兼容的平台构建，打包会停止并指出具体扩展 ID、目标 VS Code
+版本和目标平台。
+
+下载后的文件名包含扩展 ID、实际版本和可选的平台标记，例如：
+
+```text
+extensions/dbaeumer.vscode-eslint-3.0.34.vsix
+extensions/ms-python.python-2026.4.0-win32-x64.vsix
+```
+
+每个扩展的 ID、实际版本、`engines.vscode`、目标平台、来源 URL 和 SHA-256 都会写入
+`manifest.json`，便于审计和校验。
+
+当前限制：
+
+- 不支持在配置中固定某个扩展版本；
+- 不下载预发布版本；
+- 只下载 `extensions` 中显式列出的 ID；
+- 不自动展开 Extension Pack；
+- 不递归下载 `extensionDependencies` 或 `extensionPack` 成员。
+
+完全离线使用时，应将所需依赖也显式加入 `extensions` 数组。
 
 可用下面的命令获取本机已安装扩展的 ID：
 
@@ -185,8 +253,8 @@ code --list-extensions
 "settings": "./profiles/frontend-settings.json"
 ```
 
-源文件必须存在并且是普通文件，否则打包会终止。程序原样复制内容，不会解析、合并或修改
-JSON/JSONC。若需要空设置，可指定一个内容为 `{}` 的文件。
+源文件必须存在并且是普通文件，否则打包会终止。程序原样复制内容，不会解析、合并或
+修改 JSON/JSONC。若需要空设置，可指定一个内容为 `{}` 的文件。
 
 ### `output_dir`
 
@@ -203,17 +271,17 @@ JSON/JSONC。若需要空设置，可指定一个内容为 `{}` 的文件。
 <output_dir>/dev-forge-1.95.3-win32-x64.zip
 ```
 
-为避免覆盖已有文件，如果同名文件夹或 ZIP 已经存在，程序会停止并报错。配置中暂不支持
-自定义产物名称。
+为避免覆盖已有文件，如果同名文件夹或 ZIP 已经存在，程序会停止并报错。配置中暂不
+支持自定义产物名称。
 
 ## 命令行参数
 
 ```text
 dev-forge [-h]
-                        [--config CONFIG]
-                        [--settings SETTINGS]
-                        [--output-dir OUTPUT_DIR]
-                        [--archive-only]
+          [--config CONFIG]
+          [--settings SETTINGS]
+          [--output-dir OUTPUT_DIR]
+          [--archive-only]
 ```
 
 | 参数 | 是否需要值 | 默认值 | 说明 |
@@ -256,4 +324,5 @@ Set-ExecutionPolicy -Scope Process Bypass
 python3 -m unittest discover -s tests -v
 ```
 
-Marketplace 下载接口不需要令牌。网络请求会重试，下载先写入 `.part` 文件，完成后再原子替换。
+Marketplace 下载接口不需要令牌。网络请求会重试，下载先写入 `.part` 文件，完成后再
+原子替换。
