@@ -68,12 +68,63 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(loaded.version, "1.95.3")
             self.assertEqual(loaded.settings, settings.resolve())
 
+    def test_config_supports_extension_profiles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            settings = base / "settings.json"
+            settings.write_text("{}", encoding="utf-8")
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "extensions": {
+                    "default": ["Sample.Common", "sample.common"],
+                    "profiles": {
+                        "Backend Java": ["Sample.Common", "Sample.Java"],
+                        "Python": ["Sample.Python"],
+                    },
+                },
+                "settings": str(settings),
+            }), encoding="utf-8")
+
+            loaded = load_config(config)
+
+            self.assertEqual(loaded.extensions, ("sample.common",))
+            self.assertEqual(loaded.extension_profiles, (
+                ("Backend Java", ("sample.java",)),
+                ("Python", ("sample.python",)),
+            ))
+
+    def test_config_rejects_reserved_default_profile(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            settings = base / "settings.json"
+            settings.write_text("{}", encoding="utf-8")
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "extensions": {"profiles": {"Default": ["sample.extension"]}},
+                "settings": str(settings),
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(PackagerError, "Default 是保留名称"):
+                load_config(config)
+
     def test_builds_expected_zip(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             settings = base / "settings.json"
             settings.write_text('{"editor.fontSize": 15}', encoding="utf-8")
-            config = Config("1.95.3", "system", "x64", ("sample.extension",), settings, base / "out")
+            config = Config(
+                "1.95.3",
+                "system",
+                "x64",
+                ("sample.extension",),
+                settings,
+                base / "out",
+                (
+                    ("Backend Java", ("redhat.java",)),
+                    ("Python", ("ms-python.python",)),
+                ),
+            )
 
             def fake_download(url, destination):
                 destination.write_bytes(("content:" + url).encode())
@@ -94,8 +145,18 @@ class CoreTests(unittest.TestCase):
                 self.assertIn("$ArchiveMode = $false", install_script)
                 self.assertNotIn("if (false)", install_script)
                 self.assertIn("-Wait -PassThru", install_script)
+                self.assertIn("'extensions\\sample.extension-2.3.0.vsix'", install_script)
+                self.assertIn("'Backend Java' = @(\n        'extensions\\redhat.java-2.3.0.vsix'", install_script)
+                self.assertIn("'Python' = @(\n        'extensions\\ms-python.python-2.3.0.vsix'", install_script)
+                self.assertNotIn("$JavaExtensions", install_script)
+                self.assertIn("--profile', $Profile", install_script)
                 manifest = json.loads(archive.read(prefix + "manifest.json"))
                 self.assertEqual(manifest["extensions"][0]["version"], "2.3.0")
+                self.assertEqual(manifest["schema_version"], 2)
+                self.assertEqual(
+                    manifest["extension_profiles"]["profiles"]["Backend Java"],
+                    ["redhat.java"],
+                )
 
     def test_archive_bundle_generates_valid_powershell_boolean(self):
         with tempfile.TemporaryDirectory() as temp:

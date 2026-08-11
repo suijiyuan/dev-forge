@@ -20,58 +20,68 @@
     "arch": "x64"
   },
 
-  // 可选，默认值：[]。需要下载的 Visual Studio Marketplace 扩展 ID 列表。
-  // 每项必须使用 "publisher.name" 格式，可通过 `code --list-extensions` 获取。
-  // ID 不区分大小写；程序会转成小写并自动去重。
-  // 对每个 ID，程序会自动选择：非预发布、兼容目标 VS Code、兼容目标
-  // Windows 架构的最高版本。当前不支持固定扩展版本。
-  // 注意：只下载这里明确列出的扩展，不自动展开 Extension Pack 或依赖。
-  "extensions": [
-    "charliermarsh.ruff",
-    "christian-kohler.npm-intellisense",
-    "christian-kohler.path-intellisense",
-    "davidanson.vscode-markdownlint",
-    "dbaeumer.vscode-eslint",
-    "eamodio.gitlens",
-    "editorconfig.editorconfig",
-    "esbenp.prettier-vscode",
-    "formulahendry.auto-close-tag",
-    "formulahendry.auto-complete-tag",
-    "formulahendry.auto-rename-tag",
-    "humao.rest-client",
-    "hurly.sqltools-oracle-driver",
-    "ms-azuretools.vscode-containers",
-    "ms-azuretools.vscode-docker",
-    "ms-python.debugpy",
-    "ms-python.python",
-    "ms-python.vscode-pylance",
-    "ms-python.vscode-python-envs",
-    "ms-vscode-remote.remote-containers",
-    "ms-vscode-remote.remote-ssh",
-    "ms-vscode-remote.remote-ssh-edit",
-    "ms-vscode.remote-explorer",
-    "mtxr.sqltools",
-    "mtxr.sqltools-driver-mysql",
-    "mtxr.sqltools-driver-sqlite",
-    "octref.vetur",
-    "redhat.java",
-    "redhat.vscode-xml",
-    "redhat.vscode-yaml",
-    "streetsidesoftware.code-spell-checker",
-    "tyriar.sort-lines",
-    "usernamehw.errorlens",
-    "vmware.vscode-spring-boot",
-    "vscjava.vscode-gradle",
-    "vscjava.vscode-java-debug",
-    "vscjava.vscode-java-dependency",
-    "vscjava.vscode-java-pack",
-    "vscjava.vscode-java-test",
-    "vscjava.vscode-lombok",
-    "vscjava.vscode-maven",
-    "vue.volar",
-    "xyz.plsql-language",
-    "yangbaopan.vscode-java-ibatisx"
-  ],
+  // 可选。扩展可以按 Default 和任意数量的 Profile 分组。
+  // default 中的通用扩展会安装到 Default，并同步安装到每个已声明的 Profile。
+  // profiles 中的扩展只安装到对应 Profile；Profile 不存在时由 VS Code 自动创建。
+  // 每个扩展 ID 必须使用 "publisher.name" 格式。
+  "extensions": {
+    "default": [
+      "davidanson.vscode-markdownlint",
+      "eamodio.gitlens",
+      "editorconfig.editorconfig",
+      "esbenp.prettier-vscode",
+      "formulahendry.auto-close-tag",
+      "formulahendry.auto-complete-tag",
+      "formulahendry.auto-rename-tag",
+      "humao.rest-client",
+      "hurly.sqltools-oracle-driver",
+      "ms-azuretools.vscode-containers",
+      "ms-azuretools.vscode-docker",
+      "ms-vscode-remote.remote-containers",
+      "ms-vscode-remote.remote-ssh-edit",
+      "ms-vscode-remote.remote-ssh",
+      "ms-vscode.remote-explorer",
+      "mtxr.sqltools-driver-mysql",
+      "mtxr.sqltools-driver-sqlite",
+      "mtxr.sqltools",
+      "redhat.vscode-yaml",
+      "streetsidesoftware.code-spell-checker",
+      "tyriar.sort-lines",
+      "usernamehw.errorlens"
+    ],
+    "profiles": {
+      "Java": [
+        "redhat.java",
+        "redhat.vscode-xml",
+        "vmware.vscode-spring-boot",
+        "vscjava.vscode-gradle",
+        "vscjava.vscode-java-debug",
+        "vscjava.vscode-java-dependency",
+        "vscjava.vscode-java-pack",
+        "vscjava.vscode-java-test",
+        "vscjava.vscode-lombok",
+        "vscjava.vscode-maven",
+        "yangbaopan.vscode-java-ibatisx"
+      ],
+      "Python": [
+        "charliermarsh.ruff",
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.vscode-python-envs"
+      ],
+      "PL/SQL": [
+        "xyz.plsql-language"
+      ],
+      "Vue": [
+        "christian-kohler.npm-intellisense",
+        "christian-kohler.path-intellisense",
+        "dbaeumer.vscode-eslint",
+        "octref.vetur",
+        "vue.volar"
+      ]
+    }
+  },
 
   // 可选，默认值："auto"。要导出的 settings.json：
   // - "auto"：按当前操作系统自动查找 VS Code 用户 settings.json；

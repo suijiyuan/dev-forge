@@ -35,6 +35,7 @@ class Config:
     extensions: tuple[str, ...]
     settings: Path
     output_dir: Path
+    extension_profiles: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -135,10 +136,37 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     if arch not in {"x64", "arm64"}:
         raise PackagerError("vscode.arch 只能是 x64 或 arm64")
 
-    extensions = raw.get("extensions", [])
-    if not isinstance(extensions, list) or not all(re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+", item or "") for item in extensions):
-        raise PackagerError("extensions 必须是 publisher.name 格式的字符串数组")
-    extensions = list(dict.fromkeys(item.lower() for item in extensions))
+    extensions_value = raw.get("extensions", [])
+    extension_profiles: list[tuple[str, tuple[str, ...]]] = []
+    if isinstance(extensions_value, list):
+        extensions = _parse_extension_ids(extensions_value, "extensions")
+    elif isinstance(extensions_value, dict):
+        unknown_keys = set(extensions_value) - {"default", "profiles"}
+        if unknown_keys:
+            names = "、".join(sorted(unknown_keys))
+            raise PackagerError(f"extensions 包含未知配置项: {names}")
+        extensions = _parse_extension_ids(extensions_value.get("default", []), "extensions.default")
+        profiles_value = extensions_value.get("profiles", {})
+        if not isinstance(profiles_value, dict):
+            raise PackagerError("extensions.profiles 必须是以 Profile 名称为键的对象")
+        seen_profile_names: set[str] = set()
+        for name, profile_extensions in profiles_value.items():
+            if not isinstance(name, str) or not name.strip():
+                raise PackagerError("extensions.profiles 的 Profile 名称不能为空")
+            name = name.strip()
+            normalized_name = name.casefold()
+            if normalized_name == "default":
+                raise PackagerError("Default 是保留名称；通用插件请配置到 extensions.default")
+            if normalized_name in seen_profile_names:
+                raise PackagerError(f"Profile 名称不能仅有大小写差异: {name}")
+            seen_profile_names.add(normalized_name)
+            parsed_extensions = _parse_extension_ids(
+                profile_extensions, f"extensions.profiles.{name}"
+            )
+            parsed_extensions = [item for item in parsed_extensions if item not in extensions]
+            extension_profiles.append((name, tuple(parsed_extensions)))
+    else:
+        raise PackagerError("extensions 必须是字符串数组或包含 default/profiles 的对象")
 
     settings_value = settings_override or raw.get("settings", "auto")
     settings = find_settings() if settings_value == "auto" else _relative_to(path.parent, settings_value)
@@ -147,7 +175,24 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
 
     output_value = output_override or raw.get("output_dir", "dist")
     output_dir = _relative_to(path.parent, output_value)
-    return Config(version, package, arch, tuple(extensions), settings, output_dir)
+    return Config(
+        version,
+        package,
+        arch,
+        tuple(extensions),
+        settings,
+        output_dir,
+        tuple(extension_profiles),
+    )
+
+
+def _parse_extension_ids(value: Any, field: str) -> list[str]:
+    extension_pattern = r"[A-Za-z0-9_-]+\.[A-Za-z0-9_.-]+"
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and re.fullmatch(extension_pattern, item) for item in value
+    ):
+        raise PackagerError(f"{field} 必须是 publisher.name 格式的字符串数组")
+    return list(dict.fromkeys(item.lower() for item in value))
 
 
 def _relative_to(base: Path, value: str) -> Path:
@@ -269,12 +314,35 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _powershell_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _powershell_array(paths: list[str], indent: str = "") -> str:
+    if not paths:
+        return "@()"
+    windows_paths = (path.replace("/", "\\") for path in paths)
+    values = ",\n".join(f"{indent}    {_powershell_literal(path)}" for path in windows_paths)
+    return f"@(\n{values}\n{indent})"
+
+
+def _powershell_profile_map(profiles: list[tuple[str, list[str]]]) -> str:
+    if not profiles:
+        return "[ordered]@{}"
+    entries = []
+    for name, paths in profiles:
+        entries.append(f"    {_powershell_literal(name)} = {_powershell_array(paths, '    ')}")
+    return "[ordered]@{\n" + "\n".join(entries) + "\n}"
+
+
 def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -> None:
     (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     readme = f"""VS Code {config.version} Windows 离线安装包
 
 1. 在 PowerShell 中运行 .\\install.ps1。
-2. 脚本将安装 VS Code 和所有扩展。
+2. 脚本将安装 VS Code，并按打包时的 packager.jsonc 配置创建 Profile：
+   - 通用扩展安装到 Default 和所有已配置 Profile；
+   - Profile 专属扩展仅安装到对应 Profile。
 3. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
 
 详细版本和 SHA-256 校验值见 manifest.json。
@@ -282,6 +350,12 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
     (root / "README.txt").write_text(readme, encoding="utf-8")
     installer = manifest["vscode"]["file"].replace("/", "\\")
     archive_literal = "$true" if config.package == "archive" else "$false"
+    files_by_id = {extension["id"]: extension["file"] for extension in manifest["extensions"]}
+    common_extensions = _powershell_array([files_by_id[item] for item in config.extensions])
+    profile_extensions = _powershell_profile_map([
+        (name, [files_by_id[item] for item in extensions])
+        for name, extensions in config.extension_profiles
+    ])
     ps1 = f"""param([switch]$ForceSettings)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -331,11 +405,40 @@ $ExtensionsDir = Join-Path $Root 'extensions'
 if (-not (Test-Path -LiteralPath $ExtensionsDir -PathType Container)) {{
     throw "扩展目录不存在: $ExtensionsDir"
 }}
-$Extensions = @(Get-ChildItem -LiteralPath $ExtensionsDir -Filter '*.vsix' -File | Sort-Object Name)
-foreach ($Extension in $Extensions) {{
-    Write-Host "正在安装扩展 $($Extension.Name)..."
-    & $CodePath '--install-extension' $Extension.FullName '--force'
-    if ($LASTEXITCODE -ne 0) {{ throw "扩展安装失败: $($Extension.Name)，退出码: $LASTEXITCODE" }}
+
+$CommonExtensions = {common_extensions}
+$ProfileExtensions = {profile_extensions}
+
+function Install-ProfileExtension {{
+    param(
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [string]$Profile
+    )
+
+    $ExtensionPath = Join-Path $Root $RelativePath
+    if (-not (Test-Path -LiteralPath $ExtensionPath -PathType Leaf)) {{
+        throw "扩展文件不存在: $ExtensionPath"
+    }}
+
+    $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
+    Write-Host "正在向 $ProfileLabel Profile 安装扩展 $(Split-Path $ExtensionPath -Leaf)..."
+    $Arguments = @('--install-extension', $ExtensionPath, '--force')
+    if ($Profile) {{ $Arguments += @('--profile', $Profile) }}
+    & $CodePath @Arguments
+    if ($LASTEXITCODE -ne 0) {{
+        throw "扩展安装失败: $(Split-Path $ExtensionPath -Leaf)，Profile: $ProfileLabel，退出码: $LASTEXITCODE"
+    }}
+}}
+
+# Profile 的扩展集合相互独立。通用扩展需要同时登记到每个 Profile，
+# 才能在切换后继续使用。
+foreach ($Extension in $CommonExtensions) {{
+    Install-ProfileExtension -RelativePath $Extension
+}}
+foreach ($ProfileName in $ProfileExtensions.Keys) {{
+    foreach ($Extension in @($CommonExtensions) + @($ProfileExtensions[$ProfileName])) {{
+        Install-ProfileExtension -RelativePath $Extension -Profile $ProfileName
+    }}
 }}
 
 $SettingsSource = Join-Path $Root 'user-data\\settings.json'
@@ -380,7 +483,15 @@ def build_bundle(config: Config, archive_only: bool = False,
         vscode_hash = downloader(vscode_url, vscode_path)
 
         extension_entries = []
-        for extension_id in config.extensions:
+        all_extensions = list(dict.fromkeys(
+            config.extensions
+            + tuple(
+                extension_id
+                for _, profile_extensions in config.extension_profiles
+                for extension_id in profile_extensions
+            )
+        ))
+        for extension_id in all_extensions:
             progress(f"解析扩展 {extension_id}...")
             release = extension_query(extension_id, config.version, config.arch)
             platform_suffix = f"-{release.target_platform}" if release.target_platform not in (None, "", "universal") else ""
@@ -401,7 +512,7 @@ def build_bundle(config: Config, archive_only: bool = False,
         settings_target = root / "user-data" / "settings.json"
         shutil.copy2(config.settings, settings_target)
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "vscode": {
                 "version": config.version,
@@ -412,6 +523,13 @@ def build_bundle(config: Config, archive_only: bool = False,
                 "source": vscode_url,
             },
             "extensions": extension_entries,
+            "extension_profiles": {
+                "default": list(config.extensions),
+                "profiles": {
+                    name: list(extensions)
+                    for name, extensions in config.extension_profiles
+                },
+            },
             "settings": {
                 "file": settings_target.relative_to(root).as_posix(),
                 "sha256": sha256_file(settings_target),

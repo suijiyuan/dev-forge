@@ -12,6 +12,7 @@
   - 优先匹配目标 Windows 架构，其次选择通用包；
 - 自动定位 macOS、Linux、Windows 当前用户的 VS Code `settings.json`，也支持显式指定；
 - 生成文件哈希、版本清单和离线安装脚本；
+- 安装脚本按配置自动创建任意 Profile：通用扩展同时用于 Default 和所有 Profile，专属扩展仅安装到对应 Profile；
 - 输出一个结构固定的 ZIP 压缩包。
 
 ## 快速开始
@@ -62,10 +63,13 @@ dev-forge-1.95.3-win32-x64/
     "package": "system",
     "arch": "x64"
   },
-  "extensions": [
-    "ms-python.python",
-    "dbaeumer.vscode-eslint"
-  ],
+  "extensions": {
+    "default": ["eamodio.gitlens"],
+    "profiles": {
+      "Java": ["redhat.java", "vscjava.vscode-maven"],
+      "Python": ["ms-python.python", "charliermarsh.ruff"]
+    }
+  },
   "settings": "auto",
   "output_dir": "dist"
 }
@@ -79,7 +83,7 @@ dev-forge-1.95.3-win32-x64/
 | `vscode.version` | 字符串 | 是 | 无 | 完整的 `major.minor.patch`，如 `1.95.3` |
 | `vscode.package` | 字符串 | 否 | `system` | `system`、`user`、`archive` |
 | `vscode.arch` | 字符串 | 否 | `x64` | `x64`、`arm64` |
-| `extensions` | 字符串数组 | 否 | `[]` | 每项为 `publisher.name` |
+| `extensions` | 数组或对象 | 否 | `[]` | 旧式 ID 数组，或包含 `default`、`profiles` 的对象 |
 | `settings` | 字符串 | 否 | `auto` | `auto` 或一个文件路径 |
 | `output_dir` | 字符串 | 否 | `dist` | 一个目录路径 |
 
@@ -139,14 +143,52 @@ VS Code Windows 发行包的下载配置。该对象本身以及 `version` 必�
 
 ### `extensions`
 
-- 类型：字符串数组。
+- 类型：对象；为了兼容旧配置，也接受字符串数组。
 - 必填：否。
 - 默认值：空数组 `[]`，即不下载扩展。
+- `default`：通用扩展数组，安装到 Default，并同步安装到每个已配置 Profile。
+- `profiles`：以任意 Profile 名称为键、扩展数组为值的对象。
+- Profile 名称去除首尾空格后不能为空，且不能使用保留名称 `Default`。
 - 每项格式：Marketplace 扩展 ID `publisher.name`。
-- 示例：`"ms-python.python"`、`"esbenp.prettier-vscode"`。
-- ID 不区分大小写，读取后会转成小写；重复 ID 会保留第一次并自动去重。
-- ID 只能包含字母、数字、下划线、连字符和点，并且必须包含分隔 publisher 与 name
-  的第一个点。
+- ID 不区分大小写，读取后会转成小写；同一分组内重复 ID 会自动去重。
+- Profile 中重复声明的 `default` 扩展会自动忽略，因为它已经会同步到该 Profile。
+- 同一个扩展出现在多个 Profile 时只下载一次，但会登记到每个对应 Profile。
+
+例如：
+
+```json
+"extensions": {
+  "default": [
+    "eamodio.gitlens",
+    "editorconfig.editorconfig"
+  ],
+  "profiles": {
+    "Java": [
+      "redhat.java",
+      "vscjava.vscode-maven"
+    ],
+    "Python": [
+      "ms-python.python",
+      "charliermarsh.ruff"
+    ],
+    "Data Science": [
+      "ms-toolsai.jupyter"
+    ]
+  }
+}
+```
+
+上例会创建 `Java`、`Python`、`Data Science` 三个 Profile。GitLens 和 EditorConfig
+会同时用于 Default 及这三个 Profile；其他扩展只进入声明它们的 Profile。
+
+旧格式继续有效，其中所有扩展均视为通用扩展：
+
+```json
+"extensions": [
+  "ms-python.python",
+  "dbaeumer.vscode-eslint"
+]
+```
 
 #### 最合适版本的选择规则
 
@@ -223,7 +265,11 @@ extensions/ms-python.python-2026.4.0-win32-x64.vsix
 - 不自动展开 Extension Pack；
 - 不递归下载 `extensionDependencies` 或 `extensionPack` 成员。
 
-完全离线使用时，应将所需依赖也显式加入 `extensions` 数组。
+生成的 `install.ps1` 完全按照 `extensions.default` 和 `extensions.profiles` 生成，
+不包含写死的语言或扩展 ID。由于 VS Code Profile 的扩展集合互相独立，通用扩展除了
+安装到 Default，也会同时登记到所有已配置 Profile。
+
+完全离线使用时，应将所需依赖也显式加入 `extensions` 配置。
 
 可用下面的命令获取本机已安装扩展的 ID：
 
