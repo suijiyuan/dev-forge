@@ -10,7 +10,7 @@
   - 非预发布版本；
   - `engines.vscode` 与目标 VS Code 兼容；
   - 优先匹配目标 Windows 架构，其次选择通用包；
-- 自动定位 macOS、Linux、Windows 当前用户的 VS Code `settings.json`，也支持显式指定；
+- 支持 Default 与 Profile 设置；Profile 可共享同一份 Default `settings.json`，也可使用独立文件；
 - 生成文件哈希、版本清单和离线安装脚本；
 - 安装脚本按配置自动创建任意 Profile：通用扩展同时用于 Default 和所有 Profile，专属扩展仅安装到对应 Profile；
 - 输出一个结构固定的 ZIP 压缩包。
@@ -44,7 +44,10 @@ dev-forge-1.95.3-win32-x64/
 │   ├── ms-python.python-<version>.vsix
 │   └── dbaeumer.vscode-eslint-<version>.vsix
 └── user-data/
-    └── settings.json
+    ├── default/
+    │   └── settings.json
+    └── profiles/
+        └── profile-<n>/settings.json
 ```
 
 同目录还会生成 `dev-forge-1.95.3-win32-x64.zip`。成功后，中间文件夹默认被保留；
@@ -70,7 +73,13 @@ dev-forge-1.95.3-win32-x64/
       "Python": ["ms-python.python", "charliermarsh.ruff"]
     }
   },
-  "settings": "auto",
+  "settings": {
+    "default": "./vscode-settings/shared.json",
+    "profiles": {
+      "Java": {"use_default": true},
+      "Python": {"use_default": true}
+    }
+  },
   "output_dir": "dist"
 }
 ```
@@ -84,7 +93,7 @@ dev-forge-1.95.3-win32-x64/
 | `vscode.package` | 字符串 | 否 | `system` | `system`、`user`、`archive` |
 | `vscode.arch` | 字符串 | 否 | `x64` | `x64`、`arm64` |
 | `extensions` | 数组或对象 | 否 | `[]` | 旧式 ID 数组，或包含 `default`、`profiles` 的对象 |
-| `settings` | 字符串 | 否 | `auto` | `auto` 或一个文件路径 |
+| `settings` | 字符串或对象 | 否 | `auto` | Default 路径及 Profile 共享/独立设置 |
 | `output_dir` | 字符串 | 否 | `dist` | 一个目录路径 |
 
 ### `vscode`
@@ -269,6 +278,13 @@ extensions/ms-python.python-2026.4.0-win32-x64.vsix
 不包含写死的语言或扩展 ID。由于 VS Code Profile 的扩展集合互相独立，通用扩展除了
 安装到 Default，也会同时登记到所有已配置 Profile。
 
+安装扩展前，脚本会通过 `Ensure-Profile` 显式检查并创建每个 Profile。由于 VS Code CLI
+没有独立的无界面 `create-profile` 命令，脚本会使用目标 Profile 打开一个临时空文件夹，
+轮询到 CLI 能识别后关闭该启动窗口，再继续安装扩展。这条路径使用 VS Code 自身的 Profile
+创建流程，不再手工构造内部 ID 或 Profile 元数据。
+创建和插件安装命令不会传入 `--user-data-dir`，确保它们使用与用户正常启动 VS Code
+完全相同的默认用户数据目录，安装后的 Profile 会直接出现在 Profiles 菜单中。
+
 完全离线使用时，应将所需依赖也显式加入 `extensions` 配置。
 
 可用下面的命令获取本机已安装扩展的 ID：
@@ -279,11 +295,12 @@ code --list-extensions
 
 ### `settings`
 
-- 类型：字符串。
+- 类型：字符串或对象。
 - 必填：否。
 - 默认值：`"auto"`。
-- 可选形式：精确值 `"auto"`，或一个现有文件的路径。
-- `auto` 区分大小写。
+- 字符串旧格式只配置 Default：精确值 `"auto"`，或一个现有文件的路径。
+- 对象格式包含 `default` 和 `profiles`。
+- `auto` 区分大小写；没有找到配置文件时自动打包内容为 `{}` 的空文件。
 
 `"auto"` 按运行机器的操作系统查找：
 
@@ -299,8 +316,44 @@ code --list-extensions
 "settings": "./profiles/frontend-settings.json"
 ```
 
-源文件必须存在并且是普通文件，否则打包会终止。程序原样复制内容，不会解析、合并或
-修改 JSON/JSONC。若需要空设置，可指定一个内容为 `{}` 的文件。
+显式指定的源文件必须存在并且是普通文件，否则打包会终止。程序原样复制内容，不会解析、
+合并或修改 JSON/JSONC。
+
+多个 Profile 真正共享同一份 Default 配置：
+
+```json
+"settings": {
+  "default": "./vscode-settings/shared.json",
+  "profiles": {
+    "Java": {"use_default": true},
+    "Python": {"use_default": true}
+  }
+}
+```
+
+安装脚本会将 Java、Python 的 `useDefaultFlags.settings` 设置为 `true`。它们切换后直接
+读取目标机器的 `%APPDATA%\Code\User\settings.json`，不会复制各自的配置文件。修改
+Default 设置后，共享 Profile 会立即使用新值。
+
+更新 Profile 元数据时使用 .NET `UTF8Encoding(false)` 将 `storage.json` 写成无 BOM
+UTF-8。不能使用 Windows PowerShell 5 的 `Set-Content -Encoding UTF8`，否则写入的 BOM
+可能导致 VS Code 无法解析 Profile 列表，启动后只显示 Default。
+
+Profile 也可以使用独立文件或从本机同名 Profile 自动抽取：
+
+```json
+"settings": {
+  "default": "auto",
+  "profiles": {
+    "Java": "./vscode-settings/java.json",
+    "Python": "auto"
+  }
+}
+```
+
+Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读取 VS Code 的
+`globalStorage/storage.json`，把 Profile 名称映射到内部目录 ID；本地 Profile 或其
+`settings.json` 不存在时生成空配置。
 
 ### `output_dir`
 
@@ -334,7 +387,7 @@ dev-forge [-h]
 | --- | --- | --- | --- |
 | `-h`, `--help` | 否 | — | 显示帮助并退出 |
 | `--config` | 是 | `packager.jsonc` | 配置文件路径；相对路径基于当前工作目录 |
-| `--settings` | 是 | 配置中的值 | 覆盖 `settings`；相对路径基于配置文件所在目录 |
+| `--settings` | 是 | 配置中的值 | 覆盖 Default 设置路径；保留对象中的 Profile 设置 |
 | `--output-dir` | 是 | 配置中的值 | 覆盖 `output_dir`；相对路径基于配置文件所在目录 |
 | `--archive-only` | 否 | 关闭 | 成功生成 ZIP 后删除未压缩的中间文件夹，只保留 ZIP |
 
@@ -360,9 +413,15 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
 
-脚本会安装 VS Code（ZIP 发行包会自动解压）、逐个安装 VSIX，并把设置复制到
-`$env:APPDATA\Code\User\settings.json`。如需覆盖已有设置，使用
-`.\install.ps1 -ForceSettings`。脚本不会静默覆盖已有设置。
+运行前必须关闭所有 VS Code 窗口，并从独立 PowerShell 执行。VS Code 运行中的进程会缓存
+Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.cmd` 识别；安装脚本会
+检测 `Code` 进程并给出明确错误。
+
+脚本会安装 VS Code（ZIP 发行包会自动解压）、显式创建配置中的 Profile、逐个安装 VSIX，
+并恢复 Default 设置。
+对于共享设置的 Profile，脚本通过 `%APPDATA%\Code\User\globalStorage\storage.json`
+设置 `useDefaultFlags.settings=true`；独立设置则写入对应 Profile ID 目录。使用
+`.\install.ps1 -ForceSettings` 可以覆盖已有配置文件，默认不会静默覆盖。
 
 ## 开发与测试
 

@@ -28,14 +28,22 @@ class PackagerError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ProfileSettings:
+    name: str
+    source: Path | None
+    use_default: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     version: str
     package: str
     arch: str
     extensions: tuple[str, ...]
-    settings: Path
+    settings: Path | None
     output_dir: Path
     extension_profiles: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    profile_settings: tuple[ProfileSettings, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -47,22 +55,41 @@ class ExtensionRelease:
     download_url: str
 
 
-def find_settings() -> Path:
-    candidates: list[Path]
+def user_data_root() -> Path:
     system = platform.system()
     if system == "Windows":
         appdata = os.environ.get("APPDATA")
-        candidates = [Path(appdata) / "Code/User/settings.json"] if appdata else []
-    elif system == "Darwin":
-        candidates = [Path.home() / "Library/Application Support/Code/User/settings.json"]
-    else:
-        config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-        candidates = [config_home / "Code/User/settings.json"]
-    for path in candidates:
-        if path.is_file():
-            return path.resolve()
-    shown = ", ".join(str(item) for item in candidates) or "系统默认路径"
-    raise PackagerError(f"未找到当前用户的 settings.json（已检查: {shown}），请用 --settings 指定")
+        if appdata:
+            return (Path(appdata) / "Code/User").resolve()
+        return (Path.home() / "AppData/Roaming/Code/User").resolve()
+    if system == "Darwin":
+        return (Path.home() / "Library/Application Support/Code/User").resolve()
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return (config_home / "Code/User").resolve()
+
+
+def find_settings(profile_name: str | None = None) -> Path | None:
+    root = user_data_root()
+    if profile_name is None:
+        candidate = root / "settings.json"
+        return candidate.resolve() if candidate.is_file() else None
+
+    storage = root / "globalStorage/storage.json"
+    if not storage.is_file():
+        return None
+    try:
+        metadata = json.loads(storage.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    for profile in metadata.get("userDataProfiles", []):
+        if not isinstance(profile, dict) or profile.get("name") != profile_name:
+            continue
+        location = profile.get("location")
+        if not isinstance(location, str) or not location:
+            return None
+        candidate = root / "profiles" / location / "settings.json"
+        return candidate.resolve() if candidate.is_file() else None
+    return None
 
 
 def _strip_json_comments(content: str) -> str:
@@ -168,10 +195,51 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     else:
         raise PackagerError("extensions 必须是字符串数组或包含 default/profiles 的对象")
 
-    settings_value = settings_override or raw.get("settings", "auto")
-    settings = find_settings() if settings_value == "auto" else _relative_to(path.parent, settings_value)
-    if not settings.is_file():
-        raise PackagerError(f"settings.json 不存在: {settings}")
+    settings_value = raw.get("settings", "auto")
+    profile_settings: list[ProfileSettings] = []
+    if isinstance(settings_value, str):
+        default_settings_value = settings_override or settings_value
+        settings = _resolve_settings_source(path.parent, default_settings_value, "settings")
+    elif isinstance(settings_value, dict):
+        unknown_keys = set(settings_value) - {"default", "profiles"}
+        if unknown_keys:
+            names = "、".join(sorted(unknown_keys))
+            raise PackagerError(f"settings 包含未知配置项: {names}")
+        default_settings_value = settings_override or settings_value.get("default", "auto")
+        settings = _resolve_settings_source(path.parent, default_settings_value, "settings.default")
+        profile_settings_value = settings_value.get("profiles", {})
+        if not isinstance(profile_settings_value, dict):
+            raise PackagerError("settings.profiles 必须是以 Profile 名称为键的对象")
+        extension_profile_names = {name.casefold(): name for name, _ in extension_profiles}
+        seen_settings_profiles: set[str] = set()
+        for configured_name, profile_value in profile_settings_value.items():
+            if not isinstance(configured_name, str) or not configured_name.strip():
+                raise PackagerError("settings.profiles 的 Profile 名称不能为空")
+            normalized_name = configured_name.strip().casefold()
+            if normalized_name in seen_settings_profiles:
+                raise PackagerError(f"settings Profile 名称不能仅有大小写差异: {configured_name}")
+            seen_settings_profiles.add(normalized_name)
+            if normalized_name not in extension_profile_names:
+                raise PackagerError(
+                    f"settings.profiles.{configured_name} 未在 extensions.profiles 中声明"
+                )
+            profile_name = extension_profile_names[normalized_name]
+            if isinstance(profile_value, str):
+                source = _resolve_settings_source(
+                    path.parent,
+                    profile_value,
+                    f"settings.profiles.{profile_name}",
+                    profile_name,
+                )
+                profile_settings.append(ProfileSettings(profile_name, source))
+            elif isinstance(profile_value, dict) and profile_value == {"use_default": True}:
+                profile_settings.append(ProfileSettings(profile_name, None, True))
+            else:
+                raise PackagerError(
+                    f"settings.profiles.{profile_name} 必须是路径、auto 或 {{\"use_default\": true}}"
+                )
+    else:
+        raise PackagerError("settings 必须是路径字符串或包含 default/profiles 的对象")
 
     output_value = output_override or raw.get("output_dir", "dist")
     output_dir = _relative_to(path.parent, output_value)
@@ -183,6 +251,7 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
         settings,
         output_dir,
         tuple(extension_profiles),
+        tuple(profile_settings),
     )
 
 
@@ -193,6 +262,22 @@ def _parse_extension_ids(value: Any, field: str) -> list[str]:
     ):
         raise PackagerError(f"{field} 必须是 publisher.name 格式的字符串数组")
     return list(dict.fromkeys(item.lower() for item in value))
+
+
+def _resolve_settings_source(
+    base: Path,
+    value: Any,
+    field: str,
+    profile_name: str | None = None,
+) -> Path | None:
+    if not isinstance(value, str):
+        raise PackagerError(f"{field} 必须是文件路径或 auto")
+    if value == "auto":
+        return find_settings(profile_name)
+    settings = _relative_to(base, value)
+    if not settings.is_file():
+        raise PackagerError(f"{field} 指定的 settings.json 不存在: {settings}")
+    return settings
 
 
 def _relative_to(base: Path, value: str) -> Path:
@@ -314,6 +399,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _copy_or_create_empty_settings(source: Path | None, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if source is None:
+        target.write_text("{}\n", encoding="utf-8")
+    else:
+        shutil.copy2(source, target)
+
+
 def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -326,12 +419,29 @@ def _powershell_array(paths: list[str], indent: str = "") -> str:
     return f"@(\n{values}\n{indent})"
 
 
+def _powershell_values(values: list[str], indent: str = "") -> str:
+    if not values:
+        return "@()"
+    rendered = ",\n".join(f"{indent}    {_powershell_literal(value)}" for value in values)
+    return f"@(\n{rendered}\n{indent})"
+
+
 def _powershell_profile_map(profiles: list[tuple[str, list[str]]]) -> str:
     if not profiles:
         return "[ordered]@{}"
     entries = []
     for name, paths in profiles:
         entries.append(f"    {_powershell_literal(name)} = {_powershell_array(paths, '    ')}")
+    return "[ordered]@{\n" + "\n".join(entries) + "\n}"
+
+
+def _powershell_settings_map(profiles: list[tuple[str, str]]) -> str:
+    if not profiles:
+        return "[ordered]@{}"
+    entries = []
+    for name, path in profiles:
+        windows_path = path.replace("/", "\\")
+        entries.append(f"    {_powershell_literal(name)} = {_powershell_literal(windows_path)}")
     return "[ordered]@{\n" + "\n".join(entries) + "\n}"
 
 
@@ -355,6 +465,18 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
     profile_extensions = _powershell_profile_map([
         (name, [files_by_id[item] for item in extensions])
         for name, extensions in config.extension_profiles
+    ])
+    settings_manifest = manifest["settings"]
+    default_settings_path = settings_manifest["default"]["file"].replace("/", "\\")
+    shared_settings_profiles = _powershell_values([
+        name
+        for name, value in settings_manifest["profiles"].items()
+        if value.get("use_default") is True
+    ])
+    profile_settings = _powershell_settings_map([
+        (name, value["file"])
+        for name, value in settings_manifest["profiles"].items()
+        if "file" in value
     ])
     ps1 = f"""param([switch]$ForceSettings)
 $ErrorActionPreference = 'Stop'
@@ -401,6 +523,8 @@ if (-not $CodePath) {{
 }}
 if (-not $CodePath) {{ throw '未找到 code.cmd；请确认 VS Code 已成功安装或解压。' }}
 
+$UserDataRoot = Join-Path $env:APPDATA 'Code\\User'
+
 $ExtensionsDir = Join-Path $Root 'extensions'
 if (-not (Test-Path -LiteralPath $ExtensionsDir -PathType Container)) {{
     throw "扩展目录不存在: $ExtensionsDir"
@@ -408,6 +532,69 @@ if (-not (Test-Path -LiteralPath $ExtensionsDir -PathType Container)) {{
 
 $CommonExtensions = {common_extensions}
 $ProfileExtensions = {profile_extensions}
+
+function Test-ProfileAvailable {{
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {{
+        # Windows PowerShell 5 会把原生命令 stderr 转为 NativeCommandError。
+        # Profile 不存在是这里的预期探测结果，因此临时允许命令返回退出码 1。
+        $ErrorActionPreference = 'Continue'
+        & $CodePath '--profile' $Name '--list-extensions' 2>$null |
+            Out-Null
+        $ProfileExitCode = $LASTEXITCODE
+    }} finally {{
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }}
+    return ($ProfileExitCode -eq 0)
+}}
+
+function Ensure-Profile {{
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    if (Test-ProfileAvailable -Name $Name) {{
+        Write-Host "Profile 已存在: $Name"
+        return
+    }}
+
+    $BootstrapFolder = Join-Path ([IO.Path]::GetTempPath()) (
+        'dev-forge-profile-' + [Guid]::NewGuid().ToString('N')
+    )
+    New-Item -ItemType Directory -Path $BootstrapFolder -Force | Out-Null
+    $Created = $false
+    try {{
+        Write-Host "正在创建 Profile: $Name..."
+        & $CodePath '--profile' $Name '--new-window' $BootstrapFolder |
+            Out-Null
+
+        for ($Attempt = 0; $Attempt -lt 80; $Attempt++) {{
+            Start-Sleep -Milliseconds 250
+            if (Test-ProfileAvailable -Name $Name) {{
+                $Created = $true
+                break
+            }}
+        }}
+    }} finally {{
+        $BootstrapProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
+        foreach ($Process in $BootstrapProcesses) {{
+            if ($Process.MainWindowHandle -ne 0) {{ $null = $Process.CloseMainWindow() }}
+        }}
+        Start-Sleep -Milliseconds 500
+        @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue) |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $BootstrapFolder -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+
+    if (-not $Created) {{
+        throw "VS Code 未能在 20 秒内创建 Profile: $Name"
+    }}
+
+    if (-not (Test-ProfileAvailable -Name $Name)) {{
+        throw "关闭创建窗口后 VS Code 无法识别 Profile: $Name"
+    }}
+    Write-Host "已创建 Profile: $Name"
+}}
 
 function Install-ProfileExtension {{
     param(
@@ -432,6 +619,13 @@ function Install-ProfileExtension {{
 
 # Profile 的扩展集合相互独立。通用扩展需要同时登记到每个 Profile，
 # 才能在切换后继续使用。
+$RunningCodeProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
+if ($RunningCodeProcesses.Count -gt 0) {{
+    throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
+}}
+foreach ($ProfileName in $ProfileExtensions.Keys) {{
+    Ensure-Profile -Name $ProfileName
+}}
 foreach ($Extension in $CommonExtensions) {{
     Install-ProfileExtension -RelativePath $Extension
 }}
@@ -441,17 +635,83 @@ foreach ($ProfileName in $ProfileExtensions.Keys) {{
     }}
 }}
 
-$SettingsSource = Join-Path $Root 'user-data\\settings.json'
-$SettingsTarget = Join-Path $env:APPDATA 'Code\\User\\settings.json'
-if (-not (Test-Path -LiteralPath $SettingsSource -PathType Leaf)) {{
-    throw "settings.json 不存在: $SettingsSource"
+$DefaultSettingsSource = Join-Path $Root '{default_settings_path}'
+$SharedSettingsProfiles = {shared_settings_profiles}
+$ProfileSettings = {profile_settings}
+
+function Copy-SettingsFile {{
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Target,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {{
+        throw "$Label 配置文件不存在: $Source"
+    }}
+    if ((-not (Test-Path -LiteralPath $Target -PathType Leaf)) -or $ForceSettings) {{
+        New-Item -ItemType Directory -Path (Split-Path $Target) -Force | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Target -Force
+        Write-Host "$Label settings.json 已恢复。"
+    }} else {{
+        Write-Warning "$Label settings.json 已存在，未覆盖。使用 -ForceSettings 可覆盖。"
+    }}
 }}
-if ((-not (Test-Path $SettingsTarget)) -or $ForceSettings) {{
-    New-Item -ItemType Directory -Path (Split-Path $SettingsTarget) -Force | Out-Null
-    Copy-Item -LiteralPath $SettingsSource -Destination $SettingsTarget -Force
-    Write-Host 'settings.json 已恢复。'
-}} else {{
-    Write-Warning '目标 settings.json 已存在，未覆盖。使用 -ForceSettings 可覆盖。'
+
+Copy-SettingsFile `
+    -Source $DefaultSettingsSource `
+    -Target (Join-Path $UserDataRoot 'settings.json') `
+    -Label 'Default'
+
+if (($SharedSettingsProfiles.Count -gt 0) -or ($ProfileSettings.Count -gt 0)) {{
+    $StoragePath = Join-Path $UserDataRoot 'globalStorage\\storage.json'
+    if (-not (Test-Path -LiteralPath $StoragePath -PathType Leaf)) {{
+        throw "未找到 VS Code Profile 元数据: $StoragePath"
+    }}
+    $Storage = Get-Content -LiteralPath $StoragePath -Raw | ConvertFrom-Json
+
+    function Get-ProfileMetadata {{
+        param([Parameter(Mandatory = $true)][string]$Name)
+        $Result = @($Storage.userDataProfiles | Where-Object {{ $_.name -eq $Name }}) | Select-Object -First 1
+        if (-not $Result) {{ throw "安装扩展后仍未找到 Profile: $Name" }}
+        return $Result
+    }}
+
+    function Set-ProfileSettingsInheritance {{
+        param(
+            [Parameter(Mandatory = $true)]$ProfileInfo,
+            [Parameter(Mandatory = $true)][bool]$UseDefault
+        )
+        if ((-not $ProfileInfo.PSObject.Properties['useDefaultFlags']) -or
+            ($null -eq $ProfileInfo.useDefaultFlags)) {{
+            $ProfileInfo | Add-Member -NotePropertyName 'useDefaultFlags' -NotePropertyValue ([pscustomobject]@{{}}) -Force
+        }}
+        if ($ProfileInfo.useDefaultFlags.PSObject.Properties['settings']) {{
+            $ProfileInfo.useDefaultFlags.settings = $UseDefault
+        }} else {{
+            $ProfileInfo.useDefaultFlags | Add-Member -NotePropertyName 'settings' -NotePropertyValue $UseDefault
+        }}
+    }}
+
+    foreach ($ProfileName in $SharedSettingsProfiles) {{
+        $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
+        Set-ProfileSettingsInheritance -ProfileInfo $ProfileInfo -UseDefault $true
+        Write-Host "$ProfileName Profile 已设置为共享 Default settings.json。"
+    }}
+
+    foreach ($ProfileName in $ProfileSettings.Keys) {{
+        $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
+        Set-ProfileSettingsInheritance -ProfileInfo $ProfileInfo -UseDefault $false
+        $Source = Join-Path $Root $ProfileSettings[$ProfileName]
+        $Target = Join-Path $UserDataRoot "profiles\\$($ProfileInfo.location)\\settings.json"
+        Copy-SettingsFile -Source $Source -Target $Target -Label $ProfileName
+    }}
+
+    # Windows PowerShell 5 的 Set-Content -Encoding UTF8 会写入 BOM，
+    # VS Code 可能因此无法解析 storage.json。显式写入无 BOM UTF-8。
+    $StorageJson = $Storage | ConvertTo-Json -Depth 100
+    $Utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($StoragePath, $StorageJson, $Utf8WithoutBom)
 }}
 Write-Host '完成。'
 """
@@ -509,10 +769,21 @@ def build_bundle(config: Config, archive_only: bool = False,
                 "source": release.download_url,
             })
 
-        settings_target = root / "user-data" / "settings.json"
-        shutil.copy2(config.settings, settings_target)
+        settings_target = root / "user-data" / "default" / "settings.json"
+        _copy_or_create_empty_settings(config.settings, settings_target)
+        profile_settings_entries: dict[str, dict[str, Any]] = {}
+        for index, profile_setting in enumerate(config.profile_settings, start=1):
+            if profile_setting.use_default:
+                profile_settings_entries[profile_setting.name] = {"use_default": True}
+                continue
+            profile_target = root / "user-data" / "profiles" / f"profile-{index}" / "settings.json"
+            _copy_or_create_empty_settings(profile_setting.source, profile_target)
+            profile_settings_entries[profile_setting.name] = {
+                "file": profile_target.relative_to(root).as_posix(),
+                "sha256": sha256_file(profile_target),
+            }
         manifest = {
-            "schema_version": 2,
+            "schema_version": 3,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "vscode": {
                 "version": config.version,
@@ -531,8 +802,11 @@ def build_bundle(config: Config, archive_only: bool = False,
                 },
             },
             "settings": {
-                "file": settings_target.relative_to(root).as_posix(),
-                "sha256": sha256_file(settings_target),
+                "default": {
+                    "file": settings_target.relative_to(root).as_posix(),
+                    "sha256": sha256_file(settings_target),
+                },
+                "profiles": profile_settings_entries,
             },
         }
         _write_support_files(root, config, manifest)

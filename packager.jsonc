@@ -44,6 +44,7 @@
       "mtxr.sqltools-driver-mysql",
       "mtxr.sqltools-driver-sqlite",
       "mtxr.sqltools",
+      "redhat.vscode-xml",
       "redhat.vscode-yaml",
       "streetsidesoftware.code-spell-checker",
       "tyriar.sort-lines",
@@ -52,7 +53,6 @@
     "profiles": {
       "Java": [
         "redhat.java",
-        "redhat.vscode-xml",
         "vmware.vscode-spring-boot",
         "vscjava.vscode-gradle",
         "vscjava.vscode-java-debug",
@@ -83,11 +83,28 @@
     }
   },
 
-  // 可选，默认值："auto"。要导出的 settings.json：
-  // - "auto"：按当前操作系统自动查找 VS Code 用户 settings.json；
-  // - 其他字符串：settings.json 的绝对路径、~ 路径，或相对于本配置文件的路径。
-  // 文件必须存在。程序原样复制，不解析或修改 JSON/JSONC 内容。
-  "settings": "auto",
+  // 可选。default 是所有共享 Profile 使用的唯一配置文件：
+  // - "auto"：从本机 VS Code Default Profile 抽取；不存在时生成空的 {}；
+  // - 其他字符串：绝对路径、~ 路径，或相对于本配置文件的路径。
+  // profiles 中的 use_default 表示该 Profile 直接共享 Default settings.json，
+  // 不会在安装目标上复制第二份配置。
+  "settings": {
+    "default": "auto",
+    "profiles": {
+      "Java": {
+        "use_default": true
+      },
+      "Python": {
+        "use_default": true
+      },
+      "PL/SQL": {
+        "use_default": true
+      },
+      "Vue": {
+        "use_default": true
+      }
+    }
+  },
 
   // 可选，默认值："dist"。产物输出目录。
   // 支持绝对路径、~ 路径，或相对于本配置文件的路径；不存在时自动创建。
