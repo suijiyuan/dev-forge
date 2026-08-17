@@ -417,8 +417,25 @@ Set-ExecutionPolicy -Scope Process Bypass
 Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.cmd` 识别；安装脚本会
 检测 `Code` 进程并给出明确错误。
 
-脚本会安装 VS Code（ZIP 发行包会自动解压）、显式创建配置中的 Profile、逐个安装 VSIX，
-并恢复 Default 设置。
+脚本会先检查 VS Code 安装包、清单中的所有 VSIX 和配置文件是否存在，并确认没有正在运行
+的 `Code` 进程；
+随后递归删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境
+变量指定的目录，以及 ZIP Portable Mode 已存在的 `data\extensions`，再安装 VS Code、
+显式创建配置中的 Profile、逐个安装 VSIX，并恢复 Default 设置。此删除步骤不受
+`-ForceSettings` 控制，运行脚本前请确认不再需要目录中的原有扩展。
+
+删除物理扩展目录时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
+`extensions.json` 扩展清单，防止清单继续引用已经不存在的扩展目录。Profile 本身以及
+settings、keybindings、snippets、tasks 等其他配置不会被删除。
+
+如果启用了 Settings Sync，应先关闭 Extensions 和 Profiles 同步，避免联网后恢复旧扩展。
+通过快捷方式的 `--extensions-dir` 参数指定、且未同时设置 `VSCODE_EXTENSIONS` 的其他目录
+无法由脚本自动发现，需要单独清理。WSL、Remote SSH 和 Dev Container 中的远程扩展也不在
+本脚本的清理范围内。
+
+同一个 VSIX 配置到多个 Profile 时，VS Code 会重复处理同一个扩展目录。脚本会在重复安装
+前关闭安装过程中残留的 `Code` 进程；如果安装仍然失败，会清理进程并自动重试一次。这可以
+避免 Oracle Driver 等包含原生模块的扩展要求用户在安装途中手动重启 VS Code。
 对于共享设置的 Profile，脚本通过 `%APPDATA%\Code\User\globalStorage\storage.json`
 设置 `useDefaultFlags.settings=true`；独立设置则写入对应 Profile ID 目录。使用
 `.\install.ps1 -ForceSettings` 可以覆盖已有配置文件，默认不会静默覆盖。

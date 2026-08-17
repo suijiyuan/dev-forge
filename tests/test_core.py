@@ -209,12 +209,50 @@ class CoreTests(unittest.TestCase):
                 install_script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
                 self.assertIn("$ArchiveMode = $false", install_script)
                 self.assertNotIn("if (false)", install_script)
+                self.assertIn(
+                    "Join-Path ([Environment]::GetFolderPath('UserProfile')) '.vscode\\extensions'",
+                    install_script,
+                )
+                self.assertIn("$env:VSCODE_EXTENSIONS", install_script)
+                self.assertIn("Join-Path $ArchiveTarget 'data\\extensions'", install_script)
+                self.assertIn("Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force", install_script)
+                self.assertIn("$ProfilesRoot = Join-Path $UserDataRoot 'profiles'", install_script)
+                self.assertIn("Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json'", install_script)
+                self.assertIn("Remove-Item -LiteralPath $ExtensionStateFile -Force", install_script)
+                installer_check = install_script.index(
+                    "if (-not (Test-Path -LiteralPath $Installer -PathType Leaf))"
+                )
+                extension_check = install_script.index("$RequiredExtensions = @($CommonExtensions)")
+                settings_check = install_script.index("$RequiredSettingsFiles = @($DefaultSettingsSource)")
+                process_check = install_script.index("$RunningCodeProcesses = @(")
+                remove_extensions = install_script.index(
+                    "Remove-Item -LiteralPath $UserExtensionsDir"
+                )
+                remove_profile_state = install_script.index(
+                    "Remove-Item -LiteralPath $ExtensionStateFile"
+                )
+                install_vscode = install_script.index("if ($ArchiveMode) {", remove_extensions)
+                self.assertLess(
+                    installer_check,
+                    extension_check,
+                )
+                self.assertLess(extension_check, settings_check)
+                self.assertLess(settings_check, process_check)
+                self.assertLess(process_check, remove_extensions)
+                self.assertLess(remove_extensions, remove_profile_state)
+                self.assertLess(remove_profile_state, install_vscode)
+                self.assertIn("Settings Sync", install_script)
                 self.assertIn("-Wait -PassThru", install_script)
                 self.assertIn("'extensions\\sample.extension-2.3.0.vsix'", install_script)
                 self.assertIn("'Backend Java' = @(\n        'extensions\\redhat.java-2.3.0.vsix'", install_script)
                 self.assertIn("'Python' = @(\n        'extensions\\ms-python.python-2.3.0.vsix'", install_script)
                 self.assertNotIn("$JavaExtensions", install_script)
                 self.assertIn("--profile', $Profile", install_script)
+                self.assertIn("$InstalledExtensionPaths = @{}", install_script)
+                self.assertIn("function Stop-ResidualCodeProcesses", install_script)
+                self.assertIn("$IsRepeatedInstall = $InstalledExtensionPaths.ContainsKey", install_script)
+                self.assertIn("for ($Attempt = 1; $Attempt -le 2; $Attempt++)", install_script)
+                self.assertIn("扩展安装失败，将在清理 VS Code 进程后重试", install_script)
                 self.assertIn("function Test-ProfileAvailable", install_script)
                 self.assertIn("$ErrorActionPreference = 'Continue'", install_script)
                 self.assertIn("'--list-extensions' 2>$null", install_script)

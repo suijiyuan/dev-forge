@@ -450,10 +450,11 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
     readme = f"""VS Code {config.version} Windows 离线安装包
 
 1. 在 PowerShell 中运行 .\\install.ps1。
-2. 脚本将安装 VS Code，并按打包时的 packager.jsonc 配置创建 Profile：
+2. 脚本先检查离线文件并确认 VS Code 已关闭，再删除当前用户原有的扩展目录和各 Profile 的扩展清单。
+3. 脚本按打包时的 packager.jsonc 配置创建 Profile：
    - 通用扩展安装到 Default 和所有已配置 Profile；
    - Profile 专属扩展仅安装到对应 Profile。
-3. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
+4. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
 
 详细版本和 SHA-256 校验值见 manifest.json。
 """
@@ -486,14 +487,86 @@ Set-StrictMode -Version 2.0
 $Root = $PSScriptRoot
 $Installer = Join-Path $Root '{installer}'
 $ArchiveMode = {archive_literal}
+$ArchiveTarget = Join-Path $Root 'vscode\\app'
 $CodePath = $null
+$UserDataRoot = Join-Path $env:APPDATA 'Code\\User'
+$ExtensionsDir = Join-Path $Root 'extensions'
+$CommonExtensions = {common_extensions}
+$ProfileExtensions = {profile_extensions}
+$DefaultSettingsSource = Join-Path $Root '{default_settings_path}'
+$SharedSettingsProfiles = {shared_settings_profiles}
+$ProfileSettings = {profile_settings}
 
 if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {{
     throw "VS Code 安装文件不存在: $Installer"
 }}
+if (-not (Test-Path -LiteralPath $ExtensionsDir -PathType Container)) {{
+    throw "扩展目录不存在: $ExtensionsDir"
+}}
+
+# 在删除现有扩展前检查清单中的所有输入文件，避免离线包不完整时破坏当前环境。
+$RequiredExtensions = @($CommonExtensions)
+foreach ($ProfileName in $ProfileExtensions.Keys) {{
+    $RequiredExtensions += @($ProfileExtensions[$ProfileName])
+}}
+foreach ($Extension in @($RequiredExtensions | Sort-Object -Unique)) {{
+    $ExtensionPath = Join-Path $Root $Extension
+    if (-not (Test-Path -LiteralPath $ExtensionPath -PathType Leaf)) {{
+        throw "扩展文件不存在: $ExtensionPath"
+    }}
+}}
+$RequiredSettingsFiles = @($DefaultSettingsSource)
+foreach ($ProfileName in $ProfileSettings.Keys) {{
+    $RequiredSettingsFiles += Join-Path $Root $ProfileSettings[$ProfileName]
+}}
+foreach ($SettingsPath in @($RequiredSettingsFiles | Sort-Object -Unique)) {{
+    if (-not (Test-Path -LiteralPath $SettingsPath -PathType Leaf)) {{
+        throw "配置文件不存在: $SettingsPath"
+    }}
+}}
+
+$RunningCodeProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
+if ($RunningCodeProcesses.Count -gt 0) {{
+    throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
+}}
+
+Write-Warning '如果已启用 Settings Sync，请先关闭 Extensions 和 Profiles 同步，避免旧扩展被重新同步。'
+$UserExtensionsDirs = @(
+    (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.vscode\\extensions')
+)
+if ($env:VSCODE_EXTENSIONS) {{
+    $UserExtensionsDirs += [Environment]::ExpandEnvironmentVariables($env:VSCODE_EXTENSIONS)
+}}
+if ($ArchiveMode) {{
+    $UserExtensionsDirs += Join-Path $ArchiveTarget 'data\\extensions'
+}}
+foreach ($UserExtensionsDir in @($UserExtensionsDirs | Sort-Object -Unique)) {{
+    if (Test-Path -LiteralPath $UserExtensionsDir) {{
+        Write-Host "正在删除当前用户的 VS Code 扩展目录: $UserExtensionsDir"
+        Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force
+    }}
+}}
+
+# 删除物理扩展目录后也必须清理现有 Profile 的扩展清单。否则 VS Code 会把已经不存在的
+# 扩展识别为待重装版本，并在删除旧目录时错误地要求重启。
+$ProfileExtensionStateFiles = @()
+$LegacyDefaultExtensionState = Join-Path $UserDataRoot 'extensions.json'
+if (Test-Path -LiteralPath $LegacyDefaultExtensionState -PathType Leaf) {{
+    $ProfileExtensionStateFiles += $LegacyDefaultExtensionState
+}}
+$ProfilesRoot = Join-Path $UserDataRoot 'profiles'
+if (Test-Path -LiteralPath $ProfilesRoot -PathType Container) {{
+    $ProfileExtensionStateFiles += @(
+        Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json' -File -Recurse |
+            Select-Object -ExpandProperty FullName
+    )
+}}
+foreach ($ExtensionStateFile in @($ProfileExtensionStateFiles | Sort-Object -Unique)) {{
+    Write-Host "正在清理 VS Code Profile 扩展清单: $ExtensionStateFile"
+    Remove-Item -LiteralPath $ExtensionStateFile -Force
+}}
 
 if ($ArchiveMode) {{
-    $ArchiveTarget = Join-Path $Root 'vscode\\app'
     Write-Host '正在解压 VS Code...'
     if (Test-Path -LiteralPath $ArchiveTarget) {{
         Write-Warning "解压目录已存在，继续使用: $ArchiveTarget"
@@ -522,16 +595,6 @@ if (-not $CodePath) {{
     $CodePath = $Candidates | Where-Object {{ Test-Path -LiteralPath $_ -PathType Leaf }} | Select-Object -First 1
 }}
 if (-not $CodePath) {{ throw '未找到 code.cmd；请确认 VS Code 已成功安装或解压。' }}
-
-$UserDataRoot = Join-Path $env:APPDATA 'Code\\User'
-
-$ExtensionsDir = Join-Path $Root 'extensions'
-if (-not (Test-Path -LiteralPath $ExtensionsDir -PathType Container)) {{
-    throw "扩展目录不存在: $ExtensionsDir"
-}}
-
-$CommonExtensions = {common_extensions}
-$ProfileExtensions = {profile_extensions}
 
 function Test-ProfileAvailable {{
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -596,6 +659,21 @@ function Ensure-Profile {{
     Write-Host "已创建 Profile: $Name"
 }}
 
+$InstalledExtensionPaths = @{{}}
+
+function Stop-ResidualCodeProcesses {{
+    $Processes = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
+    if ($Processes.Count -eq 0) {{ return }}
+
+    Write-Host '正在关闭扩展安装产生的残留 VS Code 进程...'
+    $Processes | Stop-Process -Force -ErrorAction SilentlyContinue
+    for ($Attempt = 0; $Attempt -lt 20; $Attempt++) {{
+        if (@(Get-Process -Name 'Code' -ErrorAction SilentlyContinue).Count -eq 0) {{ return }}
+        Start-Sleep -Milliseconds 250
+    }}
+    throw '无法关闭扩展安装产生的 VS Code 进程，请重新运行安装脚本。'
+}}
+
 function Install-ProfileExtension {{
     param(
         [Parameter(Mandatory = $true)][string]$RelativePath,
@@ -608,21 +686,36 @@ function Install-ProfileExtension {{
     }}
 
     $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
-    Write-Host "正在向 $ProfileLabel Profile 安装扩展 $(Split-Path $ExtensionPath -Leaf)..."
+    $ExtensionFile = Split-Path $ExtensionPath -Leaf
+    $ExtensionKey = [IO.Path]::GetFullPath($ExtensionPath).ToLowerInvariant()
+    $IsRepeatedInstall = $InstalledExtensionPaths.ContainsKey($ExtensionKey)
     $Arguments = @('--install-extension', $ExtensionPath, '--force')
     if ($Profile) {{ $Arguments += @('--profile', $Profile) }}
-    & $CodePath @Arguments
-    if ($LASTEXITCODE -ne 0) {{
-        throw "扩展安装失败: $(Split-Path $ExtensionPath -Leaf)，Profile: $ProfileLabel，退出码: $LASTEXITCODE"
+
+    for ($Attempt = 1; $Attempt -le 2; $Attempt++) {{
+        # 本地 VSIX 安装到另一个 Profile 时，VS Code 会重新处理同一个物理目录。
+        # Oracle 等包含原生模块的扩展可能仍被上一次 CLI 进程占用，因此先清理残留进程。
+        if ($IsRepeatedInstall -or ($Attempt -gt 1)) {{
+            Stop-ResidualCodeProcesses
+        }}
+
+        Write-Host "正在向 $ProfileLabel Profile 安装扩展 $ExtensionFile..."
+        & $CodePath @Arguments
+        $ExtensionExitCode = $LASTEXITCODE
+        if ($ExtensionExitCode -eq 0) {{
+            $InstalledExtensionPaths[$ExtensionKey] = $true
+            return
+        }}
+        if ($Attempt -lt 2) {{
+            Write-Warning "扩展安装失败，将在清理 VS Code 进程后重试: $ExtensionFile，退出码: $ExtensionExitCode"
+            Start-Sleep -Milliseconds 500
+        }}
     }}
+    throw "扩展安装失败: $ExtensionFile，Profile: $ProfileLabel，退出码: $ExtensionExitCode"
 }}
 
 # Profile 的扩展集合相互独立。通用扩展需要同时登记到每个 Profile，
 # 才能在切换后继续使用。
-$RunningCodeProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
-if ($RunningCodeProcesses.Count -gt 0) {{
-    throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
-}}
 foreach ($ProfileName in $ProfileExtensions.Keys) {{
     Ensure-Profile -Name $ProfileName
 }}
@@ -634,10 +727,6 @@ foreach ($ProfileName in $ProfileExtensions.Keys) {{
         Install-ProfileExtension -RelativePath $Extension -Profile $ProfileName
     }}
 }}
-
-$DefaultSettingsSource = Join-Path $Root '{default_settings_path}'
-$SharedSettingsProfiles = {shared_settings_profiles}
-$ProfileSettings = {profile_settings}
 
 function Copy-SettingsFile {{
     param(
@@ -752,7 +841,7 @@ def build_bundle(config: Config, archive_only: bool = False,
             )
         ))
         for extension_id in all_extensions:
-            progress(f"解析扩展 {extension_id}...")
+            progress(f"解析 {extension_id}...")
             release = extension_query(extension_id, config.version, config.arch)
             platform_suffix = f"-{release.target_platform}" if release.target_platform not in (None, "", "universal") else ""
             filename = f"{extension_id}-{release.version}{platform_suffix}.vsix"

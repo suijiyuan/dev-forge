@@ -45,13 +45,9 @@
     ],
     "profiles": {
       "Profile 10 - Java": [
-        "hurly.sqltools-oracle-driver",
         "ms-azuretools.vscode-containers",
         "ms-azuretools.vscode-docker",
         "ms-vscode-remote.remote-containers",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-mysql",
-        "mtxr.sqltools-driver-sqlite",
         "redhat.java",
         "vmware.vscode-boot-dev-pack",
         "vmware.vscode-spring-boot",
@@ -68,7 +64,6 @@
       ],
       "Profile 20 - Python": [
         "charliermarsh.ruff",
-        "hurly.sqltools-oracle-driver",
         "ms-azuretools.vscode-containers",
         "ms-azuretools.vscode-docker",
         "ms-python.debugpy",
@@ -80,16 +75,9 @@
         "ms-toolsai.jupyter-renderers",
         "ms-toolsai.vscode-jupyter-cell-tags",
         "ms-toolsai.vscode-jupyter-slideshow",
-        "ms-vscode-remote.remote-containers",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-mysql",
-        "mtxr.sqltools-driver-sqlite"
+        "ms-vscode-remote.remote-containers"
       ],
       "Profile 30 - Database": [
-        "hurly.sqltools-oracle-driver",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-mysql",
-        "mtxr.sqltools-driver-sqlite",
         "xyz.plsql-language"
       ],
       "Profile 40 - Vue 2": [
