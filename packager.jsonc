@@ -44,7 +44,7 @@
       "usernamehw.errorlens"
     ],
     "profiles": {
-      "Java": [
+      "Profile 10 - Java": [
         "hurly.sqltools-oracle-driver",
         "ms-azuretools.vscode-containers",
         "ms-azuretools.vscode-docker",
@@ -66,14 +66,7 @@
         "vscjava.vscode-spring-initializr",
         "yangbaopan.vscode-java-ibatisx"
       ],
-      "Database": [
-        "hurly.sqltools-oracle-driver",
-        "mtxr.sqltools",
-        "mtxr.sqltools-driver-mysql",
-        "mtxr.sqltools-driver-sqlite",
-        "xyz.plsql-language"
-      ],
-      "Python": [
+      "Profile 20 - Python": [
         "charliermarsh.ruff",
         "hurly.sqltools-oracle-driver",
         "ms-azuretools.vscode-containers",
@@ -92,13 +85,20 @@
         "mtxr.sqltools-driver-mysql",
         "mtxr.sqltools-driver-sqlite"
       ],
-      "Vue 2": [
+      "Profile 30 - Database": [
+        "hurly.sqltools-oracle-driver",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-mysql",
+        "mtxr.sqltools-driver-sqlite",
+        "xyz.plsql-language"
+      ],
+      "Profile 40 - Vue 2": [
         "christian-kohler.npm-intellisense",
         "christian-kohler.path-intellisense",
         "dbaeumer.vscode-eslint",
         "octref.vetur"
       ],
-      "Vue 3": [
+      "Profile 50 - Vue 3": [
         "christian-kohler.npm-intellisense",
         "christian-kohler.path-intellisense",
         "dbaeumer.vscode-eslint",
@@ -115,19 +115,19 @@
   "settings": {
     "default": "auto",
     "profiles": {
-      "Java": {
+      "Profile 10 - Java": {
         "use_default": true
       },
-      "Database": {
+      "Profile 20 - Python": {
         "use_default": true
       },
-      "Python": {
+      "Profile 30 - Database": {
         "use_default": true
       },
-      "Vue 2": {
+      "Profile 40 - Vue 2": {
         "use_default": true
       },
-      "Vue 3": {
+      "Profile 50 - Vue 3": {
         "use_default": true
       }
     }
