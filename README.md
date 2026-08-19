@@ -86,9 +86,14 @@ git push origin v1.133.0.20260819.3
 Actions 页面手动运行该工作流，并输入一个已经推送到 GitHub 的标签；这适合重试尚未成功
 创建 Release 的构建。
 
-`settings.default` 和 `resources.default` 使用 `"auto"` 时，GitHub 托管 runner 无法读取
-开发机上的 VS Code 配置：Default `settings.json` 将生成为空对象，未找到的其他资源会被
-跳过。若发布制品必须包含固定配置，应将这些项目改为仓库内文件或目录的相对路径。
+仓库已提供 `config/` 作为 GitHub Actions 和本地打包共用的配置源。直接编辑其中的
+`settings.json`、`keybindings.json`、`tasks.json`、`mcp.json`，或在 `snippets/` 中增删
+代码片段，然后连同代码一起提交即可。`packager.jsonc` 已使用相对路径引用这些文件，
+因此发布制品不依赖 GitHub runner 上的 VS Code 配置。
+
+不要在这些文件中保存访问令牌、密码或私钥，因为它们会同时进入 Git 历史和公开/私有
+Release 产物。若把某项改回 `"auto"`，GitHub 托管 runner 仍无法读取开发机上的 VS Code
+配置：Default `settings.json` 会生成为空对象，未找到的其他资源会被跳过。
 
 ## 完整配置参考
 
@@ -601,7 +606,7 @@ Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-
 ## 开发与测试
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s src/tests -v
 ```
 
 Marketplace 下载接口不需要令牌。网络请求会重试，下载先写入 `.part` 文件，完成后再

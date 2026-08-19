@@ -21,6 +21,20 @@ from dev_forge.core import (
 
 
 class CoreTests(unittest.TestCase):
+    def test_checked_in_packager_uses_repository_vscode_config(self):
+        repository = Path(__file__).resolve().parents[2]
+
+        loaded = load_config(repository / "packager.jsonc")
+
+        config_root = repository / "config"
+        self.assertEqual(loaded.settings, (config_root / "settings.json").resolve())
+        self.assertEqual(dict(loaded.resources), {
+            "keybindings": (config_root / "keybindings.json").resolve(),
+            "snippets": (config_root / "snippets").resolve(),
+            "tasks": (config_root / "tasks.json").resolve(),
+            "mcp": (config_root / "mcp.json").resolve(),
+        })
+
     def test_vscode_url(self):
         url, filename = vscode_download("1.95.3", "user", "x64")
         self.assertEqual(url, "https://update.code.visualstudio.com/1.95.3/win32-x64-user/stable")

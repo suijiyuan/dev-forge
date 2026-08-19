@@ -42,7 +42,7 @@ jobs:
         run: python -m pip install -e .
 
       - name: Run tests
-        run: python -m unittest discover -s tests -v
+        run: python -m unittest discover -s src/tests -v
 
       - name: Validate release tag
         shell: bash

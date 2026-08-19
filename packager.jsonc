@@ -102,13 +102,14 @@
     }
   },
 
-  // 可选。default 是所有共享 Profile 使用的唯一配置文件：
-  // - "auto"：从本机 VS Code Default Profile 抽取；不存在时生成空的 {}；
-  // - 其他字符串：绝对路径、~ 路径，或相对于本配置文件的路径。
+  // 可选。default 是所有共享 Profile 使用的唯一配置文件。
+  // 当前使用仓库内的 config/settings.json，确保 GitHub Actions
+  // 与本地打包读取同一份配置；直接编辑该文件即可调整发行包内容。
+  // 也可改为 "auto" 从执行打包的机器抽取，但 GitHub runner 上通常不存在该文件。
   // profiles 中的 use_default 表示该 Profile 直接共享 Default settings.json，
   // 不会在安装目标上复制第二份配置。
   "settings": {
-    "default": "auto",
+    "default": "./config/settings.json",
     "profiles": {
       "Profile 10 - Java": {
         "use_default": true
@@ -130,15 +131,17 @@
 
   // 可选。除 settings.json 外的 VS Code Profile 资源。
   // 支持 keybindings、snippets、tasks、mcp；未配置的资源不会打包或修改。
-  // default 中每项可使用 "auto"，或指定文件路径；snippets 必须指定目录。
+  // 当前统一从仓库内的 config/ 读取，确保 GitHub Actions 可访问；
+  // 直接编辑对应文件或在 snippets/ 中增删 *.code-snippets 即可。
+  // default 中每项也可使用 "auto"，或指定其他路径；snippets 必须指定目录。
   // profiles 中可同样指定独立来源，也可用 {"use_default": true} 共享 Default。
   // "auto" 找不到对应本机资源时会跳过，不生成空文件。
   "resources": {
     "default": {
-      "keybindings": "auto",
-      "snippets": "auto",
-      "tasks": "auto",
-      "mcp": "auto"
+      "keybindings": "./config/keybindings.json",
+      "snippets": "./config/snippets",
+      "tasks": "./config/tasks.json",
+      "mcp": "./config/mcp.json"
     },
     "profiles": {
       "Profile 10 - Java": {

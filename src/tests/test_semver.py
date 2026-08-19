@@ -1,3 +1,5 @@
+"""Tests for the VS Code semantic-version constraint evaluator."""
+
 import unittest
 
 from dev_forge.semver import satisfies
