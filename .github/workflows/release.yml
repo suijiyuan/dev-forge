@@ -1,0 +1,76 @@
+name: Build and publish release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing Git tag to build and publish (for example: v1.133.0.20260819.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build ZIP and publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      PYTHONDONTWRITEBYTECODE: "1"
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Dev Forge
+        run: python -m pip install --no-deps -e .
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          vscode_version="$(python -c 'from pathlib import Path; from dev_forge.core import load_config; print(load_config(Path("packager.jsonc").resolve()).version)')"
+          expected_prefix="v${vscode_version}."
+          if [[ "$RELEASE_TAG" != "$expected_prefix"* ]]; then
+            echo "Release tag '$RELEASE_TAG' must start with '$expected_prefix'." >&2
+            exit 1
+          fi
+
+      - name: Build offline bundle
+        run: dev-forge --config packager.jsonc --archive-only
+
+      - name: Create ZIP checksum
+        shell: bash
+        run: |
+          cd dist
+          sha256sum ./*.zip > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            dist/*.zip \
+            dist/SHA256SUMS.txt \
+            --verify-tag \
+            --generate-notes \
+            --title "$RELEASE_TAG"

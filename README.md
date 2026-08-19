@@ -60,6 +60,36 @@ dev-forge-1.95.3-win32-x64/
 同目录还会生成 `dev-forge-1.95.3-win32-x64.zip`。成功后，中间文件夹默认被保留；
 使用 `--archive-only` 可只保留 ZIP。
 
+## 通过 GitHub Actions 自动发布
+
+仓库中的 `.github/workflows/release.yml` 会在推送 `v*` 标签时自动完成以下工作：
+
+1. 检出标签对应的代码；
+2. 使用 Python 3.12 安装 Dev Forge 并运行测试；
+3. 执行 `dev-forge --config packager.jsonc --archive-only`；
+4. 为 ZIP 生成 `SHA256SUMS.txt`；
+5. 创建与标签同名的 GitHub Release，并上传 ZIP 和校验文件。
+
+标签必须以 `packager.jsonc` 中的 VS Code 版本开头。例如配置版本为 `1.133.0` 时，
+可按以下方式发布：
+
+```bash
+git add .
+git commit -m "feat: update offline bundle"
+git push origin master
+
+git tag v1.133.0.20260819.3
+git push origin v1.133.0.20260819.3
+```
+
+工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`，无需配置个人访问令牌。也可以在仓库的
+Actions 页面手动运行该工作流，并输入一个已经推送到 GitHub 的标签；这适合重试尚未成功
+创建 Release 的构建。
+
+`settings.default` 和 `resources.default` 使用 `"auto"` 时，GitHub 托管 runner 无法读取
+开发机上的 VS Code 配置：Default `settings.json` 将生成为空对象，未找到的其他资源会被
+跳过。若发布制品必须包含固定配置，应将这些项目改为仓库内文件或目录的相对路径。
+
 ## 完整配置参考
 
 配置文件使用 UTF-8 编码，支持 JSONC 风格的 `// 单行注释` 和
