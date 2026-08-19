@@ -1,1 +1,37 @@
-{}
+{
+    "chat.titleBar.signIn.enabled": false,
+    "editor.unicodeHighlight.allowedLocales": {
+        "zh-hans": true
+    },
+    "editor.wordWrap": "on",
+    "explorer.confirmDelete": false,
+    "files.autoGuessEncoding": true,
+    "files.autoSave": "afterDelay",
+    "files.encoding": "utf8",
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    "git.enableSmartCommit": true,
+    "java.configuration.maven.globalSettings": "",
+    "java.configuration.runtimes": [],
+    "java.jdt.ls.java.home": "",
+    "npm.packageManager": "npm",
+    "npm.scriptRunner": "npm",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "redhat.telemetry.enabled": false,
+    "terminal.integrated.defaultProfile.windows": "Git Bash",
+    "terminal.integrated.inheritEnv": false,
+    "terminal.integrated.initialHint": false,
+    "window.newWindowProfile": "Default",
+    "window.zoomLevel": 1,
+    "workbench.editor.empty.hint": "hidden",
+    "workbench.startupEditor": "none",
+    "yaml.disableSchemaDetection": [
+        "**/.forgejo/workflows/*.yaml",
+        "**/.forgejo/workflows/*.yml",
+        "**/.gitea/workflows/*.yaml",
+        "**/.gitea/workflows/*.yml",
+        "**/.github/workflows/*.yaml",
+        "**/.github/workflows/*.yml"
+    ]
+}
