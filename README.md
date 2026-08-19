@@ -190,7 +190,8 @@ VS Code Windows 发行包的下载配置。该对象本身以及 `version` 必�
 
 两种模式只控制扩展清理策略，不会改变 settings 和其他 Profile 资源的覆盖开关：
 
-- `merge`：保留本机已有扩展，安装清单中的缺失扩展，并用清单版本更新同 ID 扩展。
+- `merge`：保留本机已有扩展；各 Profile 中 ID 和版本均与离线清单一致的扩展会跳过，
+  缺失或版本不同的扩展才会安装。
 - `replace`：安装 VS Code 前删除当前用户扩展目录和各 Profile 的 `extensions.json`，然后
   完全按照离线清单重建扩展集合。未列入清单的本地扩展会被删除。
 
@@ -525,6 +526,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 # 同时覆盖 settings 和其他 Profile 资源
 .\install.ps1 -Mode replace -ForceSettings -ForceResources
+
+# 即使检测到相同版本，也强制重新运行 VS Code 安装器
+.\install.ps1 -ForceVSCodeInstall
 ```
 
 运行前必须关闭所有 VS Code 窗口，并从独立 PowerShell 执行。VS Code 运行中的进程会缓存
@@ -536,6 +540,10 @@ Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.c
 删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境变量指定的
 目录，以及 ZIP Archive Mode 已存在的 `data\extensions`，再按清单重建。
 
+对于 Installer Mode，脚本会读取现有 `code.cmd --version`。版本和架构均符合清单时默认
+跳过 VS Code 安装器；需要修复安装时可使用 `-ForceVSCodeInstall`。Archive Mode 仍在目标
+目录不存在时解压，目录已经存在时继续复用。
+
 在 `replace` 模式下，删除物理扩展目录时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
 `extensions.json` 扩展清单，防止清单继续引用已经不存在的扩展目录。Profile 本身以及
 settings、keybindings、snippets、tasks 等其他配置不会被删除。
@@ -545,9 +553,10 @@ settings、keybindings、snippets、tasks 等其他配置不会被删除。
 无法由脚本自动发现，需要单独清理。WSL、Remote SSH 和 Dev Container 中的远程扩展也不在
 本脚本的清理范围内。
 
-同一个 VSIX 配置到多个 Profile 时，VS Code 会重复处理同一个扩展目录。脚本会在重复安装
-前关闭安装过程中残留的 `Code` 进程；如果安装仍然失败，会清理进程并自动重试一次。这可以
-避免 Oracle Driver 等包含原生模块的扩展要求用户在安装途中手动重启 VS Code。
+扩展以每批最多 20 个 VSIX 的方式安装，同一 Profile 不再为每个扩展单独启动一次
+`code.cmd`。在 `merge` 模式下，脚本还会先读取每个 Profile 的 `ID@版本` 并跳过完全一致的
+扩展。同一个 VSIX 配置到多个 Profile 时，脚本仍会在必要时关闭安装过程中残留的 `Code`
+进程；如果批量安装失败，会拆分为单个扩展并自动重试，以保留具体失败扩展的错误信息。
 对于共享设置的 Profile，脚本通过 `%APPDATA%\Code\User\globalStorage\storage.json`
 设置 `useDefaultFlags.settings=true`；独立设置则写入对应 Profile ID 目录。使用
 `.\install.ps1 -ForceSettings` 可以覆盖已有配置文件，默认不会静默覆盖。

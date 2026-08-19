@@ -582,6 +582,20 @@ def _powershell_profile_map(profiles: list[tuple[str, list[str]]]) -> str:
     return "[ordered]@{\n" + "\n".join(entries) + "\n}"
 
 
+def _powershell_extension_metadata(entries: list[dict[str, Any]]) -> str:
+    if not entries:
+        return "[ordered]@{}"
+    rendered = []
+    for entry in entries:
+        path = entry["file"].replace("/", "\\")
+        rendered.append(
+            f"    {_powershell_literal(path)} = @{{ "
+            f"Id = {_powershell_literal(entry['id'])}; "
+            f"Version = {_powershell_literal(entry['version'])} }}"
+        )
+    return "[ordered]@{\n" + "\n".join(rendered) + "\n}"
+
+
 def _powershell_settings_map(profiles: list[tuple[str, str]]) -> str:
     if not profiles:
         return "[ordered]@{}"
@@ -639,6 +653,8 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
    - Profile 专属扩展仅安装到对应 Profile。
 6. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
 7. keybindings、snippets、tasks、MCP 默认保留已有文件；使用 -ForceResources 可覆盖。
+8. 已安装相同版本的 VS Code 默认跳过；使用 -ForceVSCodeInstall 可强制重新安装。
+9. merge 模式会跳过各 Profile 中已经达到离线清单版本的扩展。
 
 详细版本和 SHA-256 校验值见 manifest.json。
 """
@@ -651,6 +667,7 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
         (name, [files_by_id[item] for item in extensions])
         for name, extensions in config.extension_profiles
     ])
+    extension_metadata = _powershell_extension_metadata(manifest["extensions"])
     settings_manifest = manifest["settings"]
     default_settings_path = settings_manifest["default"]["file"].replace("/", "\\")
     shared_settings_profiles = _powershell_values([
@@ -697,7 +714,8 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
     [ValidateSet('merge', 'replace')]
     [string]$Mode = {default_install_mode},
     [switch]$ForceSettings,
-    [switch]$ForceResources
+    [switch]$ForceResources,
+    [switch]$ForceVSCodeInstall
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -708,10 +726,15 @@ $Installer = Join-Path $Root '{installer}'
 $ArchiveMode = {archive_literal}
 $ArchiveTarget = Join-Path $Root 'vscode\\app'
 $CodePath = $null
+$TargetVSCodeVersion = {_powershell_literal(config.version)}
+$TargetVSCodeArch = {_powershell_literal(config.arch)}
+$PackageKind = {_powershell_literal(config.package)}
 $UserDataRoot = Join-Path $env:APPDATA 'Code\\User'
 $ExtensionsDir = Join-Path $Root 'extensions'
 $CommonExtensions = {common_extensions}
 $ProfileExtensions = {profile_extensions}
+$ExtensionMetadata = {extension_metadata}
+$ExtensionBatchSize = 20
 $DefaultSettingsSource = Join-Path $Root '{default_settings_path}'
 $SharedSettingsProfiles = {shared_settings_profiles}
 $ProfileSettings = {profile_settings}
@@ -807,6 +830,52 @@ if ($Mode -eq 'replace') {{
     Write-Host 'merge 模式：保留本机现有扩展，只安装或更新离线包清单中的扩展。'
 }}
 
+function Find-CodeCommand {{
+    $Candidates = @()
+    if ($ArchiveMode -and (Test-Path -LiteralPath $ArchiveTarget -PathType Container)) {{
+        $ArchiveCodePath = Get-ChildItem -LiteralPath $ArchiveTarget -Filter 'code.cmd' -File -Recurse |
+            Where-Object {{ $_.FullName -like '*\\bin\\code.cmd' }} |
+            Select-Object -First 1 -ExpandProperty FullName
+        if ($ArchiveCodePath) {{ $Candidates += $ArchiveCodePath }}
+    }}
+    if ($PackageKind -eq 'user' -and $env:LOCALAPPDATA) {{
+        $Candidates += Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd'
+    }}
+    if ($PackageKind -eq 'system' -and $env:ProgramFiles) {{
+        $Candidates += Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd'
+    }}
+    if ($env:LOCALAPPDATA) {{
+        $Candidates += Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd'
+    }}
+    if ($env:ProgramFiles) {{
+        $Candidates += Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd'
+    }}
+    $CodeCommand = Get-Command 'code.cmd' -ErrorAction SilentlyContinue
+    if ($CodeCommand) {{ $Candidates += $CodeCommand.Source }}
+    return $Candidates |
+        Where-Object {{ $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }} |
+        Select-Object -Unique -First 1
+}}
+
+function Get-CodeInstallationInfo {{
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {{
+        $ErrorActionPreference = 'Continue'
+        $VersionLines = @(& $Path '--version' 2>$null)
+        $VersionExitCode = $LASTEXITCODE
+    }} finally {{
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }}
+    if ($VersionExitCode -ne 0 -or $VersionLines.Count -eq 0) {{ return $null }}
+    $DetectedArch = if ($VersionLines.Count -ge 3) {{ ([string]$VersionLines[2]).Trim() }} else {{ $null }}
+    return @{{
+        Version = ([string]$VersionLines[0]).Trim()
+        Arch = $DetectedArch
+    }}
+}}
+
 if ($ArchiveMode) {{
     Write-Host '正在解压 VS Code...'
     if (Test-Path -LiteralPath $ArchiveTarget) {{
@@ -814,26 +883,32 @@ if ($ArchiveMode) {{
     }} else {{
         Expand-Archive -LiteralPath $Installer -DestinationPath $ArchiveTarget
     }}
-    $CodePath = Get-ChildItem -LiteralPath $ArchiveTarget -Filter 'code.cmd' -File -Recurse |
-        Where-Object {{ $_.FullName -like '*\\bin\\code.cmd' }} |
-        Select-Object -First 1 -ExpandProperty FullName
+    $CodePath = Find-CodeCommand
 }} else {{
-    Write-Host '正在安装 VS Code...'
-    $InstallProcess = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT','/NORESTART','/MERGETASKS=!runcode' -Wait -PassThru
-    if ($InstallProcess.ExitCode -ne 0) {{
-        throw "VS Code 安装失败，退出码: $($InstallProcess.ExitCode)"
+    $ExistingCodePath = Find-CodeCommand
+    $ExistingCodeInfo = if ($ExistingCodePath) {{ Get-CodeInstallationInfo -Path $ExistingCodePath }} else {{ $null }}
+    $SameVersion = $ExistingCodeInfo -and
+        ($ExistingCodeInfo.Version -eq $TargetVSCodeVersion) -and
+        ((-not $ExistingCodeInfo.Arch) -or ($ExistingCodeInfo.Arch -eq $TargetVSCodeArch))
+    if ($SameVersion -and (-not $ForceVSCodeInstall)) {{
+        $CodePath = $ExistingCodePath
+        Write-Host "已安装相同版本的 VS Code $TargetVSCodeVersion，跳过安装器。"
+    }} else {{
+        if ($ForceVSCodeInstall) {{
+            Write-Host '已指定 -ForceVSCodeInstall，强制重新安装 VS Code...'
+        }} else {{
+            Write-Host '正在安装 VS Code...'
+        }}
+        $InstallProcess = Start-Process -FilePath $Installer -ArgumentList '/VERYSILENT','/NORESTART','/MERGETASKS=!runcode' -Wait -PassThru
+        if ($InstallProcess.ExitCode -ne 0) {{
+            throw "VS Code 安装失败，退出码: $($InstallProcess.ExitCode)"
+        }}
+        $CodePath = Find-CodeCommand
     }}
 }}
 
 if (-not $CodePath) {{
-    $CodeCommand = Get-Command 'code.cmd' -ErrorAction SilentlyContinue
-    if ($CodeCommand) {{ $CodePath = $CodeCommand.Source }}
-}}
-if (-not $CodePath) {{
-    $Candidates = @()
-    if ($env:LOCALAPPDATA) {{ $Candidates += Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd' }}
-    if ($env:ProgramFiles) {{ $Candidates += Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd' }}
-    $CodePath = $Candidates | Where-Object {{ Test-Path -LiteralPath $_ -PathType Leaf }} | Select-Object -First 1
+    $CodePath = Find-CodeCommand
 }}
 if (-not $CodePath) {{ throw '未找到 code.cmd；请确认 VS Code 已成功安装或解压。' }}
 
@@ -915,44 +990,138 @@ function Stop-ResidualCodeProcesses {{
     throw '无法关闭扩展安装产生的 VS Code 进程，请重新运行安装脚本。'
 }}
 
-function Install-ProfileExtension {{
+function Get-InstalledExtensionVersions {{
     param(
-        [Parameter(Mandatory = $true)][string]$RelativePath,
         [string]$Profile
     )
 
-    $ExtensionPath = Join-Path $Root $RelativePath
-    if (-not (Test-Path -LiteralPath $ExtensionPath -PathType Leaf)) {{
-        throw "扩展文件不存在: $ExtensionPath"
+    $Arguments = @('--list-extensions', '--show-versions')
+    if ($Profile) {{ $Arguments += @('--profile', $Profile) }}
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {{
+        $ErrorActionPreference = 'Continue'
+        $ExtensionLines = @(& $CodePath @Arguments 2>$null)
+        $ListExitCode = $LASTEXITCODE
+    }} finally {{
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }}
+    if ($ListExitCode -ne 0) {{
+        $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
+        throw "无法读取 $ProfileLabel Profile 的已安装扩展，退出码: $ListExitCode"
     }}
 
+    $Versions = @{{}}
+    foreach ($Line in $ExtensionLines) {{
+        $Text = ([string]$Line).Trim()
+        $Separator = $Text.LastIndexOf('@')
+        if ($Separator -le 0 -or $Separator -ge ($Text.Length - 1)) {{ continue }}
+        $ExtensionId = $Text.Substring(0, $Separator)
+        $ExtensionVersion = $Text.Substring($Separator + 1)
+        $Versions[$ExtensionId] = $ExtensionVersion
+    }}
+    return $Versions
+}}
+
+function Install-ExtensionBatch {{
+    param(
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths,
+        [string]$Profile
+    )
+
+    if ($RelativePaths.Count -eq 0) {{ return }}
     $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
-    $ExtensionFile = Split-Path $ExtensionPath -Leaf
-    $ExtensionKey = [IO.Path]::GetFullPath($ExtensionPath).ToLowerInvariant()
-    $IsRepeatedInstall = $InstalledExtensionPaths.ContainsKey($ExtensionKey)
-    $Arguments = @('--install-extension', $ExtensionPath, '--force')
+    $Arguments = @()
+    $ExtensionPaths = @()
+    $IsRepeatedInstall = $false
+    foreach ($RelativePath in $RelativePaths) {{
+        $ExtensionPath = Join-Path $Root $RelativePath
+        if (-not (Test-Path -LiteralPath $ExtensionPath -PathType Leaf)) {{
+            throw "扩展文件不存在: $ExtensionPath"
+        }}
+        $ExtensionPaths += $ExtensionPath
+        $Arguments += @('--install-extension', $ExtensionPath)
+        $ExtensionKey = [IO.Path]::GetFullPath($ExtensionPath).ToLowerInvariant()
+        if ($InstalledExtensionPaths.ContainsKey($ExtensionKey)) {{
+            $IsRepeatedInstall = $true
+        }}
+    }}
+    $Arguments += '--force'
     if ($Profile) {{ $Arguments += @('--profile', $Profile) }}
 
-    for ($Attempt = 1; $Attempt -le 2; $Attempt++) {{
+    $MaxAttempts = if ($RelativePaths.Count -eq 1) {{ 2 }} else {{ 1 }}
+    for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {{
         # 本地 VSIX 安装到另一个 Profile 时，VS Code 会重新处理同一个物理目录。
         # Oracle 等包含原生模块的扩展可能仍被上一次 CLI 进程占用，因此先清理残留进程。
         if ($IsRepeatedInstall -or ($Attempt -gt 1)) {{
             Stop-ResidualCodeProcesses
         }}
 
-        Write-Host "正在向 $ProfileLabel Profile 安装扩展 $ExtensionFile..."
+        Write-Host "正在向 $ProfileLabel Profile 批量安装 $($RelativePaths.Count) 个扩展..."
         & $CodePath @Arguments
         $ExtensionExitCode = $LASTEXITCODE
         if ($ExtensionExitCode -eq 0) {{
-            $InstalledExtensionPaths[$ExtensionKey] = $true
+            foreach ($ExtensionPath in $ExtensionPaths) {{
+                $ExtensionKey = [IO.Path]::GetFullPath($ExtensionPath).ToLowerInvariant()
+                $InstalledExtensionPaths[$ExtensionKey] = $true
+            }}
             return
         }}
-        if ($Attempt -lt 2) {{
+        if ($RelativePaths.Count -gt 1) {{
+            Write-Warning "批量安装失败，将拆分为单个扩展重试。Profile: $ProfileLabel，退出码: $ExtensionExitCode"
+            Stop-ResidualCodeProcesses
+            foreach ($RelativePath in $RelativePaths) {{
+                Install-ExtensionBatch -RelativePaths @($RelativePath) -Profile $Profile
+            }}
+            return
+        }}
+        if ($Attempt -lt $MaxAttempts) {{
+            $ExtensionFile = Split-Path $ExtensionPaths[0] -Leaf
             Write-Warning "扩展安装失败，将在清理 VS Code 进程后重试: $ExtensionFile，退出码: $ExtensionExitCode"
             Start-Sleep -Milliseconds 500
         }}
     }}
+    $ExtensionFile = Split-Path $ExtensionPaths[0] -Leaf
     throw "扩展安装失败: $ExtensionFile，Profile: $ProfileLabel，退出码: $ExtensionExitCode"
+}}
+
+function Install-ProfileExtensions {{
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$RelativePaths,
+        [string]$Profile
+    )
+
+    if ($RelativePaths.Count -eq 0) {{ return }}
+    $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
+    $InstalledVersions = if ($Mode -eq 'merge') {{
+        Get-InstalledExtensionVersions -Profile $Profile
+    }} else {{
+        @{{}}
+    }}
+    $PendingExtensions = @()
+    $SkippedCount = 0
+    foreach ($RelativePath in @($RelativePaths | Select-Object -Unique)) {{
+        $Metadata = $ExtensionMetadata[$RelativePath]
+        if (-not $Metadata) {{
+            throw "扩展元数据不存在: $RelativePath"
+        }}
+        $InstalledVersion = $InstalledVersions[[string]$Metadata.Id]
+        if ($Mode -eq 'merge' -and $InstalledVersion -eq [string]$Metadata.Version) {{
+            $SkippedCount++
+            continue
+        }}
+        $PendingExtensions += $RelativePath
+    }}
+    if ($SkippedCount -gt 0) {{
+        Write-Host "$ProfileLabel Profile 已有 $SkippedCount 个相同版本扩展，跳过。"
+    }}
+    if ($PendingExtensions.Count -eq 0) {{
+        Write-Host "$ProfileLabel Profile 的扩展已是目标版本。"
+        return
+    }}
+    for ($Offset = 0; $Offset -lt $PendingExtensions.Count; $Offset += $ExtensionBatchSize) {{
+        $Batch = @($PendingExtensions | Select-Object -Skip $Offset -First $ExtensionBatchSize)
+        Install-ExtensionBatch -RelativePaths $Batch -Profile $Profile
+    }}
 }}
 
 # Profile 的扩展集合相互独立。通用扩展需要同时登记到每个 Profile，
@@ -960,13 +1129,10 @@ function Install-ProfileExtension {{
 foreach ($ProfileName in $ProfileExtensions.Keys) {{
     Ensure-Profile -Name $ProfileName
 }}
-foreach ($Extension in $CommonExtensions) {{
-    Install-ProfileExtension -RelativePath $Extension
-}}
+Install-ProfileExtensions -RelativePaths $CommonExtensions
 foreach ($ProfileName in $ProfileExtensions.Keys) {{
-    foreach ($Extension in @($CommonExtensions) + @($ProfileExtensions[$ProfileName])) {{
-        Install-ProfileExtension -RelativePath $Extension -Profile $ProfileName
-    }}
+    $ExtensionsForProfile = @($CommonExtensions) + @($ProfileExtensions[$ProfileName])
+    Install-ProfileExtensions -RelativePaths $ExtensionsForProfile -Profile $ProfileName
 }}
 
 function Copy-SettingsFile {{
