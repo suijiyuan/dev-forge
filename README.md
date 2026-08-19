@@ -1,7 +1,7 @@
 # Dev Forge
 
-将指定版本的 Windows VS Code、与该版本兼容的最新稳定版扩展、当前环境的
-`settings.json` 打包为一个可校验、可离线安装的 ZIP 文件。
+将指定版本的 Windows VS Code、与该版本兼容的最新稳定版扩展，以及 VS Code Profile
+资源打包为一个可校验、可离线安装的 ZIP 文件。
 
 ## 能力
 
@@ -11,6 +11,8 @@
   - `engines.vscode` 与目标 VS Code 兼容；
   - 优先匹配目标 Windows 架构，其次选择通用包；
 - 支持 Default 与 Profile 设置；Profile 可共享同一份 Default `settings.json`，也可使用独立文件；
+- 支持 `keybindings.json`、`snippets/`、`tasks.json`、`mcp.json`，并可按资源继承 Default；
+- 支持安全的 `merge` 和完全重建扩展的 `replace` 两种安装模式；
 - 生成文件哈希、版本清单和离线安装脚本；
 - 安装脚本按配置自动创建任意 Profile：通用扩展同时用于 Default 和所有 Profile，专属扩展仅安装到对应 Profile；
 - 输出一个结构固定的 ZIP 压缩包。
@@ -45,9 +47,14 @@ dev-forge-1.95.3-win32-x64/
 │   └── dbaeumer.vscode-eslint-<version>.vsix
 └── user-data/
     ├── default/
-    │   └── settings.json
+    │   ├── settings.json
+    │   ├── keybindings.json
+    │   └── snippets/
     └── profiles/
-        └── profile-<n>/settings.json
+        └── profile-<n>/
+            ├── settings.json
+            ├── tasks.json
+            └── mcp.json
 ```
 
 同目录还会生成 `dev-forge-1.95.3-win32-x64.zip`。成功后，中间文件夹默认被保留；
@@ -66,6 +73,9 @@ dev-forge-1.95.3-win32-x64/
     "package": "system",
     "arch": "x64"
   },
+  "install": {
+    "mode": "merge"
+  },
   "extensions": {
     "default": ["eamodio.gitlens"],
     "profiles": {
@@ -80,6 +90,24 @@ dev-forge-1.95.3-win32-x64/
       "Python": {"use_default": true}
     }
   },
+  "resources": {
+    "default": {
+      "keybindings": "./vscode-profile/keybindings.json",
+      "snippets": "./vscode-profile/snippets"
+    },
+    "profiles": {
+      "Java": {
+        "keybindings": {"use_default": true},
+        "snippets": {"use_default": true},
+        "tasks": "./vscode-profile/java-tasks.json"
+      },
+      "Python": {
+        "keybindings": {"use_default": true},
+        "snippets": {"use_default": true},
+        "mcp": "./vscode-profile/python-mcp.json"
+      }
+    }
+  },
   "output_dir": "dist"
 }
 ```
@@ -92,8 +120,11 @@ dev-forge-1.95.3-win32-x64/
 | `vscode.version` | 字符串 | 是 | 无 | 完整的 `major.minor.patch`，如 `1.95.3` |
 | `vscode.package` | 字符串 | 否 | `system` | `system`、`user`、`archive` |
 | `vscode.arch` | 字符串 | 否 | `x64` | `x64`、`arm64` |
+| `install` | 对象 | 否 | `{"mode":"merge"}` | 离线安装行为 |
+| `install.mode` | 字符串 | 否 | `merge` | `merge`、`replace` |
 | `extensions` | 数组或对象 | 否 | `[]` | 旧式 ID 数组，或包含 `default`、`profiles` 的对象 |
 | `settings` | 字符串或对象 | 否 | `auto` | Default 路径及 Profile 共享/独立设置 |
+| `resources` | 对象 | 否 | `{}` | keybindings、snippets、tasks、MCP 资源 |
 | `output_dir` | 字符串 | 否 | `dist` | 一个目录路径 |
 
 ### `vscode`
@@ -149,6 +180,28 @@ VS Code Windows 发行包的下载配置。该对象本身以及 `version` 必�
 | `user` | `arm64` | `win32-arm64-user` | `.exe` |
 | `archive` | `x64` | `win32-x64-archive` | `.zip` |
 | `archive` | `arm64` | `win32-arm64-archive` | `.zip` |
+
+### `install`
+
+- 类型：对象。
+- 必填：否。
+- 默认值：`{"mode":"merge"}`。
+- `mode` 只允许 `merge` 或 `replace`。
+
+两种模式只控制扩展清理策略，不会改变 settings 和其他 Profile 资源的覆盖开关：
+
+- `merge`：保留本机已有扩展，安装清单中的缺失扩展，并用清单版本更新同 ID 扩展。
+- `replace`：安装 VS Code 前删除当前用户扩展目录和各 Profile 的 `extensions.json`，然后
+  完全按照离线清单重建扩展集合。未列入清单的本地扩展会被删除。
+
+生成的 `install.ps1` 使用配置值作为默认模式，也可以在安装时临时覆盖：
+
+```powershell
+.\install.ps1 -Mode merge
+.\install.ps1 -Mode replace
+```
+
+为了兼容旧配置，省略 `install` 时使用更安全的 `merge`。
 
 ### `extensions`
 
@@ -250,7 +303,7 @@ Dev Forge 不会直接下载 Marketplace 中版本号最大的文件。它先排
 | Tilde | `~1.90.0` |
 | 通配符 | `1.90.x`、`1.x`、`*` |
 | 连字符范围 | `1.90.0 - 1.100.0` |
-| OR 条件 | `^1.90.0 || ^1.100.0` |
+| OR 条件 | `^1.90.0 \|\| ^1.100.0` |
 
 无法识别的版本约束会按“不兼容”处理，不会冒险下载可能无法安装的版本。
 如果没有任何稳定、兼容的平台构建，打包会停止并指出具体扩展 ID、目标 VS Code
@@ -355,6 +408,54 @@ Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读�
 `globalStorage/storage.json`，把 Profile 名称映射到内部目录 ID；本地 Profile 或其
 `settings.json` 不存在时生成空配置。
 
+### `resources`
+
+`resources` 用于管理 settings 之外的 Profile 资源，支持以下固定名称：
+
+| 资源名 | 来源类型 | Default/独立 Profile 目标 |
+| --- | --- | --- |
+| `keybindings` | JSON/JSONC 文件 | `keybindings.json` |
+| `snippets` | 目录 | `snippets/` |
+| `tasks` | JSON/JSONC 文件 | `tasks.json` |
+| `mcp` | JSON/JSONC 文件 | `mcp.json` |
+
+完整示例：
+
+```json
+"resources": {
+  "default": {
+    "keybindings": "auto",
+    "snippets": "./vscode-profile/snippets",
+    "tasks": "./vscode-profile/tasks.json",
+    "mcp": "./vscode-profile/mcp.json"
+  },
+  "profiles": {
+    "Java": {
+      "keybindings": {"use_default": true},
+      "snippets": {"use_default": true},
+      "tasks": "./vscode-profile/java-tasks.json",
+      "mcp": {"use_default": true}
+    }
+  }
+}
+```
+
+规则如下：
+
+- `default` 和 `profiles` 都可以省略；未配置的资源不会被打包，也不会修改目标机器。
+- 文件资源可以使用 `"auto"` 或文件路径；`snippets` 可以使用 `"auto"` 或目录路径。
+- Default 的 `"auto"` 从本机 Default Profile 读取；Profile 的 `"auto"` 从本机同名
+  Profile 读取。自动来源不存在时跳过该资源，不生成空文件。
+- 显式路径不存在或类型不符时停止打包。
+- `{"use_default": true}` 会设置对应的 `useDefaultFlags`，让 Profile 直接使用 Default
+  资源，不复制第二份文件。
+- `resources.profiles` 的名称必须已在 `extensions.profiles` 中声明。
+- snippets 会递归打包，manifest 为每个文件记录 SHA-256。
+
+安装时默认不覆盖已有文件；snippets 会保留已有文件并复制缺失文件。使用
+`.\install.ps1 -ForceResources` 可覆盖 keybindings、tasks、MCP 和同名 snippet 文件。
+该参数不控制 `settings.json`；settings 仍由 `-ForceSettings` 单独控制。
+
 ### `output_dir`
 
 - 类型：字符串。
@@ -413,18 +514,29 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\install.ps1
 ```
 
+安装参数：
+
+```powershell
+# 保留现有扩展，只合并离线清单；这是默认值
+.\install.ps1 -Mode merge
+
+# 清空本地扩展后严格按清单重建
+.\install.ps1 -Mode replace
+
+# 同时覆盖 settings 和其他 Profile 资源
+.\install.ps1 -Mode replace -ForceSettings -ForceResources
+```
+
 运行前必须关闭所有 VS Code 窗口，并从独立 PowerShell 执行。VS Code 运行中的进程会缓存
 Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.cmd` 识别；安装脚本会
 检测 `Code` 进程并给出明确错误。
 
-脚本会先检查 VS Code 安装包、清单中的所有 VSIX 和配置文件是否存在，并确认没有正在运行
-的 `Code` 进程；
-随后递归删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境
-变量指定的目录，以及 ZIP Portable Mode 已存在的 `data\extensions`，再安装 VS Code、
-显式创建配置中的 Profile、逐个安装 VSIX，并恢复 Default 设置。此删除步骤不受
-`-ForceSettings` 控制，运行脚本前请确认不再需要目录中的原有扩展。
+脚本会先检查 VS Code 安装包、清单中的所有 VSIX、settings 和 Profile 资源是否存在，并
+确认没有正在运行的 `Code` 进程。`merge` 模式直接保留现有扩展；`replace` 模式才会递归
+删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境变量指定的
+目录，以及 ZIP Archive Mode 已存在的 `data\extensions`，再按清单重建。
 
-删除物理扩展目录时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
+在 `replace` 模式下，删除物理扩展目录时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
 `extensions.json` 扩展清单，防止清单继续引用已经不存在的扩展目录。Profile 本身以及
 settings、keybindings、snippets、tasks 等其他配置不会被删除。
 
@@ -439,6 +551,10 @@ settings、keybindings、snippets、tasks 等其他配置不会被删除。
 对于共享设置的 Profile，脚本通过 `%APPDATA%\Code\User\globalStorage\storage.json`
 设置 `useDefaultFlags.settings=true`；独立设置则写入对应 Profile ID 目录。使用
 `.\install.ps1 -ForceSettings` 可以覆盖已有配置文件，默认不会静默覆盖。
+
+keybindings、snippets、tasks、MCP 使用相同的 Profile 元数据机制。独立资源写入对应
+Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-ForceResources` 控制，
+不会因为选择 `replace` 就自动覆盖。
 
 ## 开发与测试
 

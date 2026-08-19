@@ -35,6 +35,14 @@ class ProfileSettings:
 
 
 @dataclass(frozen=True)
+class ProfileResource:
+    name: str
+    kind: str
+    source: Path | None
+    use_default: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     version: str
     package: str
@@ -44,6 +52,9 @@ class Config:
     output_dir: Path
     extension_profiles: tuple[tuple[str, tuple[str, ...]], ...] = ()
     profile_settings: tuple[ProfileSettings, ...] = ()
+    install_mode: str = "merge"
+    resources: tuple[tuple[str, Path], ...] = ()
+    profile_resources: tuple[ProfileResource, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,11 +79,10 @@ def user_data_root() -> Path:
     return (config_home / "Code/User").resolve()
 
 
-def find_settings(profile_name: str | None = None) -> Path | None:
+def _profile_root(profile_name: str | None = None) -> Path | None:
     root = user_data_root()
     if profile_name is None:
-        candidate = root / "settings.json"
-        return candidate.resolve() if candidate.is_file() else None
+        return root
 
     storage = root / "globalStorage/storage.json"
     if not storage.is_file():
@@ -87,9 +97,30 @@ def find_settings(profile_name: str | None = None) -> Path | None:
         location = profile.get("location")
         if not isinstance(location, str) or not location:
             return None
-        candidate = root / "profiles" / location / "settings.json"
-        return candidate.resolve() if candidate.is_file() else None
+        return (root / "profiles" / location).resolve()
     return None
+
+
+def find_resource(kind: str, profile_name: str | None = None) -> Path | None:
+    filenames = {
+        "settings": "settings.json",
+        "keybindings": "keybindings.json",
+        "snippets": "snippets",
+        "tasks": "tasks.json",
+        "mcp": "mcp.json",
+    }
+    if kind not in filenames:
+        raise ValueError(f"未知的 VS Code Profile 资源: {kind}")
+    root = _profile_root(profile_name)
+    if root is None:
+        return None
+    candidate = root / filenames[kind]
+    expected = candidate.is_dir() if kind == "snippets" else candidate.is_file()
+    return candidate.resolve() if expected else None
+
+
+def find_settings(profile_name: str | None = None) -> Path | None:
+    return find_resource("settings", profile_name)
 
 
 def _strip_json_comments(content: str) -> str:
@@ -162,6 +193,17 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
         raise PackagerError("vscode.package 只能是 system、user 或 archive")
     if arch not in {"x64", "arm64"}:
         raise PackagerError("vscode.arch 只能是 x64 或 arm64")
+
+    install_value = raw.get("install", {})
+    if not isinstance(install_value, dict):
+        raise PackagerError("install 必须是对象")
+    unknown_install_keys = set(install_value) - {"mode"}
+    if unknown_install_keys:
+        names = "、".join(sorted(unknown_install_keys))
+        raise PackagerError(f"install 包含未知配置项: {names}")
+    install_mode = install_value.get("mode", "merge")
+    if install_mode not in {"merge", "replace"}:
+        raise PackagerError("install.mode 只能是 merge 或 replace")
 
     extensions_value = raw.get("extensions", [])
     extension_profiles: list[tuple[str, tuple[str, ...]]] = []
@@ -241,6 +283,66 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     else:
         raise PackagerError("settings 必须是路径字符串或包含 default/profiles 的对象")
 
+    resource_kinds = {"keybindings", "snippets", "tasks", "mcp"}
+    resources_value = raw.get("resources", {})
+    if not isinstance(resources_value, dict):
+        raise PackagerError("resources 必须是包含 default/profiles 的对象")
+    unknown_resource_keys = set(resources_value) - {"default", "profiles"}
+    if unknown_resource_keys:
+        names = "、".join(sorted(unknown_resource_keys))
+        raise PackagerError(f"resources 包含未知配置项: {names}")
+
+    default_resources_value = resources_value.get("default", {})
+    if not isinstance(default_resources_value, dict):
+        raise PackagerError("resources.default 必须是以资源名称为键的对象")
+    unknown_default_resources = set(default_resources_value) - resource_kinds
+    if unknown_default_resources:
+        names = "、".join(sorted(unknown_default_resources))
+        raise PackagerError(f"resources.default 包含未知资源: {names}")
+    resources: list[tuple[str, Path]] = []
+    for kind, value in default_resources_value.items():
+        source = _resolve_resource_source(path.parent, value, f"resources.default.{kind}", kind)
+        if source is not None:
+            resources.append((kind, source))
+
+    profile_resources_value = resources_value.get("profiles", {})
+    if not isinstance(profile_resources_value, dict):
+        raise PackagerError("resources.profiles 必须是以 Profile 名称为键的对象")
+    extension_profile_names = {name.casefold(): name for name, _ in extension_profiles}
+    seen_resource_profiles: set[str] = set()
+    profile_resources: list[ProfileResource] = []
+    for configured_name, profile_value in profile_resources_value.items():
+        if not isinstance(configured_name, str) or not configured_name.strip():
+            raise PackagerError("resources.profiles 的 Profile 名称不能为空")
+        normalized_name = configured_name.strip().casefold()
+        if normalized_name in seen_resource_profiles:
+            raise PackagerError(f"resources Profile 名称不能仅有大小写差异: {configured_name}")
+        seen_resource_profiles.add(normalized_name)
+        if normalized_name not in extension_profile_names:
+            raise PackagerError(
+                f"resources.profiles.{configured_name} 未在 extensions.profiles 中声明"
+            )
+        profile_name = extension_profile_names[normalized_name]
+        if not isinstance(profile_value, dict):
+            raise PackagerError(f"resources.profiles.{profile_name} 必须是对象")
+        unknown_profile_resources = set(profile_value) - resource_kinds
+        if unknown_profile_resources:
+            names = "、".join(sorted(unknown_profile_resources))
+            raise PackagerError(f"resources.profiles.{profile_name} 包含未知资源: {names}")
+        for kind, value in profile_value.items():
+            if isinstance(value, dict) and value == {"use_default": True}:
+                profile_resources.append(ProfileResource(profile_name, kind, None, True))
+                continue
+            source = _resolve_resource_source(
+                path.parent,
+                value,
+                f"resources.profiles.{profile_name}.{kind}",
+                kind,
+                profile_name,
+            )
+            if source is not None:
+                profile_resources.append(ProfileResource(profile_name, kind, source))
+
     output_value = output_override or raw.get("output_dir", "dist")
     output_dir = _relative_to(path.parent, output_value)
     return Config(
@@ -252,6 +354,9 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
         output_dir,
         tuple(extension_profiles),
         tuple(profile_settings),
+        install_mode,
+        tuple(resources),
+        tuple(profile_resources),
     )
 
 
@@ -278,6 +383,25 @@ def _resolve_settings_source(
     if not settings.is_file():
         raise PackagerError(f"{field} 指定的 settings.json 不存在: {settings}")
     return settings
+
+
+def _resolve_resource_source(
+    base: Path,
+    value: Any,
+    field: str,
+    kind: str,
+    profile_name: str | None = None,
+) -> Path | None:
+    if not isinstance(value, str):
+        raise PackagerError(f"{field} 必须是路径或 auto")
+    if value == "auto":
+        return find_resource(kind, profile_name)
+    source = _relative_to(base, value)
+    valid = source.is_dir() if kind == "snippets" else source.is_file()
+    if not valid:
+        expected = "目录" if kind == "snippets" else "文件"
+        raise PackagerError(f"{field} 指定的{expected}不存在: {source}")
+    return source
 
 
 def _relative_to(base: Path, value: str) -> Path:
@@ -407,6 +531,29 @@ def _copy_or_create_empty_settings(source: Path | None, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+def _copy_resource(source: Path, target: Path, root: Path) -> dict[str, Any]:
+    if source.is_dir():
+        shutil.copytree(source, target)
+        files = [
+            {
+                "file": item.relative_to(root).as_posix(),
+                "sha256": sha256_file(item),
+            }
+            for item in sorted(target.rglob("*"))
+            if item.is_file()
+        ]
+        return {
+            "directory": target.relative_to(root).as_posix(),
+            "files": files,
+        }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    return {
+        "file": target.relative_to(root).as_posix(),
+        "sha256": sha256_file(target),
+    }
+
+
 def _powershell_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -445,16 +592,53 @@ def _powershell_settings_map(profiles: list[tuple[str, str]]) -> str:
     return "[ordered]@{\n" + "\n".join(entries) + "\n}"
 
 
+def _powershell_string_map(values: list[tuple[str, str]], indent: str = "") -> str:
+    if not values:
+        return "[ordered]@{}"
+    entries = []
+    for key, value in values:
+        windows_value = value.replace("/", "\\")
+        entries.append(
+            f"{indent}    {_powershell_literal(key)} = {_powershell_literal(windows_value)}"
+        )
+    return "[ordered]@{\n" + "\n".join(entries) + f"\n{indent}}}"
+
+
+def _powershell_nested_values_map(profiles: list[tuple[str, list[str]]]) -> str:
+    if not profiles:
+        return "[ordered]@{}"
+    entries = [
+        f"    {_powershell_literal(name)} = {_powershell_values(values, '    ')}"
+        for name, values in profiles
+    ]
+    return "[ordered]@{\n" + "\n".join(entries) + "\n}"
+
+
+def _powershell_nested_string_map(
+    profiles: list[tuple[str, list[tuple[str, str]]]],
+) -> str:
+    if not profiles:
+        return "[ordered]@{}"
+    entries = [
+        f"    {_powershell_literal(name)} = {_powershell_string_map(values, '    ')}"
+        for name, values in profiles
+    ]
+    return "[ordered]@{\n" + "\n".join(entries) + "\n}"
+
+
 def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -> None:
     (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     readme = f"""VS Code {config.version} Windows 离线安装包
 
 1. 在 PowerShell 中运行 .\\install.ps1。
-2. 脚本先检查离线文件并确认 VS Code 已关闭，再删除当前用户原有的扩展目录和各 Profile 的扩展清单。
-3. 脚本按打包时的 packager.jsonc 配置创建 Profile：
+2. 默认安装模式是 {config.install_mode}；可使用 -Mode merge 或 -Mode replace 临时覆盖。
+3. merge 保留本机已有扩展；replace 会删除当前用户原有的扩展目录和各 Profile 的扩展清单。
+4. 脚本先检查离线文件并确认 VS Code 已关闭，再按选择的模式处理扩展。
+5. 脚本按打包时的 packager.jsonc 配置创建 Profile：
    - 通用扩展安装到 Default 和所有已配置 Profile；
    - Profile 专属扩展仅安装到对应 Profile。
-4. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
+6. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
+7. keybindings、snippets、tasks、MCP 默认保留已有文件；使用 -ForceResources 可覆盖。
 
 详细版本和 SHA-256 校验值见 manifest.json。
 """
@@ -479,7 +663,42 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
         for name, value in settings_manifest["profiles"].items()
         if "file" in value
     ])
-    ps1 = f"""param([switch]$ForceSettings)
+    resources_manifest = manifest["resources"]
+
+    def resource_path(value: dict[str, Any]) -> str:
+        return value.get("file") or value["directory"]
+
+    default_resources = _powershell_string_map([
+        (kind, resource_path(value))
+        for kind, value in resources_manifest["default"].items()
+    ])
+    shared_profile_resources = _powershell_nested_values_map([
+        (
+            name,
+            [kind for kind, value in values.items() if value.get("use_default") is True],
+        )
+        for name, values in resources_manifest["profiles"].items()
+        if any(value.get("use_default") is True for value in values.values())
+    ])
+    profile_resources = _powershell_nested_string_map([
+        (
+            name,
+            [
+                (kind, resource_path(value))
+                for kind, value in values.items()
+                if value.get("use_default") is not True
+            ],
+        )
+        for name, values in resources_manifest["profiles"].items()
+        if any(value.get("use_default") is not True for value in values.values())
+    ])
+    default_install_mode = _powershell_literal(config.install_mode)
+    ps1 = f"""param(
+    [ValidateSet('merge', 'replace')]
+    [string]$Mode = {default_install_mode},
+    [switch]$ForceSettings,
+    [switch]$ForceResources
+)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 Set-StrictMode -Version 2.0
@@ -496,6 +715,9 @@ $ProfileExtensions = {profile_extensions}
 $DefaultSettingsSource = Join-Path $Root '{default_settings_path}'
 $SharedSettingsProfiles = {shared_settings_profiles}
 $ProfileSettings = {profile_settings}
+$DefaultResources = {default_resources}
+$SharedProfileResources = {shared_profile_resources}
+$ProfileResources = {profile_resources}
 
 if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {{
     throw "VS Code 安装文件不存在: $Installer"
@@ -524,46 +746,65 @@ foreach ($SettingsPath in @($RequiredSettingsFiles | Sort-Object -Unique)) {{
         throw "配置文件不存在: $SettingsPath"
     }}
 }}
+foreach ($ResourceName in $DefaultResources.Keys) {{
+    $ResourcePath = Join-Path $Root $DefaultResources[$ResourceName]
+    $PathType = if ($ResourceName -eq 'snippets') {{ 'Container' }} else {{ 'Leaf' }}
+    if (-not (Test-Path -LiteralPath $ResourcePath -PathType $PathType)) {{
+        throw "Profile 资源不存在: $ResourcePath"
+    }}
+}}
+foreach ($ProfileName in $ProfileResources.Keys) {{
+    foreach ($ResourceName in $ProfileResources[$ProfileName].Keys) {{
+        $ResourcePath = Join-Path $Root $ProfileResources[$ProfileName][$ResourceName]
+        $PathType = if ($ResourceName -eq 'snippets') {{ 'Container' }} else {{ 'Leaf' }}
+        if (-not (Test-Path -LiteralPath $ResourcePath -PathType $PathType)) {{
+            throw "Profile 资源不存在: $ResourcePath"
+        }}
+    }}
+}}
 
 $RunningCodeProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
 if ($RunningCodeProcesses.Count -gt 0) {{
     throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
 }}
 
-Write-Warning '如果已启用 Settings Sync，请先关闭 Extensions 和 Profiles 同步，避免旧扩展被重新同步。'
-$UserExtensionsDirs = @(
-    (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.vscode\\extensions')
-)
-if ($env:VSCODE_EXTENSIONS) {{
-    $UserExtensionsDirs += [Environment]::ExpandEnvironmentVariables($env:VSCODE_EXTENSIONS)
-}}
-if ($ArchiveMode) {{
-    $UserExtensionsDirs += Join-Path $ArchiveTarget 'data\\extensions'
-}}
-foreach ($UserExtensionsDir in @($UserExtensionsDirs | Sort-Object -Unique)) {{
-    if (Test-Path -LiteralPath $UserExtensionsDir) {{
-        Write-Host "正在删除当前用户的 VS Code 扩展目录: $UserExtensionsDir"
-        Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force
-    }}
-}}
-
-# 删除物理扩展目录后也必须清理现有 Profile 的扩展清单。否则 VS Code 会把已经不存在的
-# 扩展识别为待重装版本，并在删除旧目录时错误地要求重启。
-$ProfileExtensionStateFiles = @()
-$LegacyDefaultExtensionState = Join-Path $UserDataRoot 'extensions.json'
-if (Test-Path -LiteralPath $LegacyDefaultExtensionState -PathType Leaf) {{
-    $ProfileExtensionStateFiles += $LegacyDefaultExtensionState
-}}
-$ProfilesRoot = Join-Path $UserDataRoot 'profiles'
-if (Test-Path -LiteralPath $ProfilesRoot -PathType Container) {{
-    $ProfileExtensionStateFiles += @(
-        Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json' -File -Recurse |
-            Select-Object -ExpandProperty FullName
+if ($Mode -eq 'replace') {{
+    Write-Warning 'replace 模式会删除本机现有扩展；如果已启用 Settings Sync，请先关闭 Extensions 和 Profiles 同步。'
+    $UserExtensionsDirs = @(
+        (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.vscode\\extensions')
     )
-}}
-foreach ($ExtensionStateFile in @($ProfileExtensionStateFiles | Sort-Object -Unique)) {{
-    Write-Host "正在清理 VS Code Profile 扩展清单: $ExtensionStateFile"
-    Remove-Item -LiteralPath $ExtensionStateFile -Force
+    if ($env:VSCODE_EXTENSIONS) {{
+        $UserExtensionsDirs += [Environment]::ExpandEnvironmentVariables($env:VSCODE_EXTENSIONS)
+    }}
+    if ($ArchiveMode) {{
+        $UserExtensionsDirs += Join-Path $ArchiveTarget 'data\\extensions'
+    }}
+    foreach ($UserExtensionsDir in @($UserExtensionsDirs | Sort-Object -Unique)) {{
+        if (Test-Path -LiteralPath $UserExtensionsDir) {{
+            Write-Host "正在删除当前用户的 VS Code 扩展目录: $UserExtensionsDir"
+            Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force
+        }}
+    }}
+
+    # 删除物理扩展目录后也必须清理现有 Profile 的扩展清单。
+    $ProfileExtensionStateFiles = @()
+    $LegacyDefaultExtensionState = Join-Path $UserDataRoot 'extensions.json'
+    if (Test-Path -LiteralPath $LegacyDefaultExtensionState -PathType Leaf) {{
+        $ProfileExtensionStateFiles += $LegacyDefaultExtensionState
+    }}
+    $ProfilesRoot = Join-Path $UserDataRoot 'profiles'
+    if (Test-Path -LiteralPath $ProfilesRoot -PathType Container) {{
+        $ProfileExtensionStateFiles += @(
+            Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json' -File -Recurse |
+                Select-Object -ExpandProperty FullName
+        )
+    }}
+    foreach ($ExtensionStateFile in @($ProfileExtensionStateFiles | Sort-Object -Unique)) {{
+        Write-Host "正在清理 VS Code Profile 扩展清单: $ExtensionStateFile"
+        Remove-Item -LiteralPath $ExtensionStateFile -Force
+    }}
+}} else {{
+    Write-Host 'merge 模式：保留本机现有扩展，只安装或更新离线包清单中的扩展。'
 }}
 
 if ($ArchiveMode) {{
@@ -747,12 +988,87 @@ function Copy-SettingsFile {{
     }}
 }}
 
+function Get-ProfileResourceTarget {{
+    param(
+        [Parameter(Mandatory = $true)][string]$Base,
+        [Parameter(Mandatory = $true)][string]$ResourceName
+    )
+    $Filename = switch ($ResourceName) {{
+        'keybindings' {{ 'keybindings.json' }}
+        'snippets' {{ 'snippets' }}
+        'tasks' {{ 'tasks.json' }}
+        'mcp' {{ 'mcp.json' }}
+        default {{ throw "未知的 Profile 资源: $ResourceName" }}
+    }}
+    return Join-Path $Base $Filename
+}}
+
+function Copy-ProfileResource {{
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Target,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][bool]$Directory
+    )
+
+    if ($Directory) {{
+        if (-not (Test-Path -LiteralPath $Source -PathType Container)) {{
+            throw "$Label 资源目录不存在: $Source"
+        }}
+        if ((Test-Path -LiteralPath $Target) -and
+            (-not (Test-Path -LiteralPath $Target -PathType Container))) {{
+            if (-not $ForceResources) {{
+                Write-Warning "$Label 目标已存在且不是目录，未覆盖。使用 -ForceResources 可覆盖。"
+                return
+            }}
+            Remove-Item -LiteralPath $Target -Force
+        }}
+        New-Item -ItemType Directory -Path $Target -Force | Out-Null
+        foreach ($SourceFile in @(Get-ChildItem -LiteralPath $Source -File -Recurse)) {{
+            $RelativePath = $SourceFile.FullName.Substring($Source.Length).TrimStart('\\')
+            $TargetFile = Join-Path $Target $RelativePath
+            if ((-not (Test-Path -LiteralPath $TargetFile -PathType Leaf)) -or $ForceResources) {{
+                New-Item -ItemType Directory -Path (Split-Path $TargetFile) -Force | Out-Null
+                Copy-Item -LiteralPath $SourceFile.FullName -Destination $TargetFile -Force
+            }} else {{
+                Write-Warning "$Label 文件已存在，未覆盖: $RelativePath"
+            }}
+        }}
+        Write-Host "$Label 资源目录已合并。"
+        return
+    }}
+
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {{
+        throw "$Label 资源文件不存在: $Source"
+    }}
+    if ((-not (Test-Path -LiteralPath $Target -PathType Leaf)) -or $ForceResources) {{
+        New-Item -ItemType Directory -Path (Split-Path $Target) -Force | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Target -Force
+        Write-Host "$Label 资源已恢复。"
+    }} else {{
+        Write-Warning "$Label 已存在，未覆盖。使用 -ForceResources 可覆盖。"
+    }}
+}}
+
 Copy-SettingsFile `
     -Source $DefaultSettingsSource `
     -Target (Join-Path $UserDataRoot 'settings.json') `
     -Label 'Default'
 
-if (($SharedSettingsProfiles.Count -gt 0) -or ($ProfileSettings.Count -gt 0)) {{
+foreach ($ResourceName in $DefaultResources.Keys) {{
+    $Source = Join-Path $Root $DefaultResources[$ResourceName]
+    $Target = Get-ProfileResourceTarget -Base $UserDataRoot -ResourceName $ResourceName
+    Copy-ProfileResource `
+        -Source $Source `
+        -Target $Target `
+        -Label "Default $ResourceName" `
+        -Directory ($ResourceName -eq 'snippets')
+}}
+
+if (($SharedSettingsProfiles.Count -gt 0) -or
+    ($ProfileSettings.Count -gt 0) -or
+    ($SharedProfileResources.Count -gt 0) -or
+    ($ProfileResources.Count -gt 0)) {{
     $StoragePath = Join-Path $UserDataRoot 'globalStorage\\storage.json'
     if (-not (Test-Path -LiteralPath $StoragePath -PathType Leaf)) {{
         throw "未找到 VS Code Profile 元数据: $StoragePath"
@@ -766,34 +1082,64 @@ if (($SharedSettingsProfiles.Count -gt 0) -or ($ProfileSettings.Count -gt 0)) {{
         return $Result
     }}
 
-    function Set-ProfileSettingsInheritance {{
+    function Set-ProfileResourceInheritance {{
         param(
             [Parameter(Mandatory = $true)]$ProfileInfo,
+            [Parameter(Mandatory = $true)][string]$ResourceName,
             [Parameter(Mandatory = $true)][bool]$UseDefault
         )
         if ((-not $ProfileInfo.PSObject.Properties['useDefaultFlags']) -or
             ($null -eq $ProfileInfo.useDefaultFlags)) {{
             $ProfileInfo | Add-Member -NotePropertyName 'useDefaultFlags' -NotePropertyValue ([pscustomobject]@{{}}) -Force
         }}
-        if ($ProfileInfo.useDefaultFlags.PSObject.Properties['settings']) {{
-            $ProfileInfo.useDefaultFlags.settings = $UseDefault
+        if ($ProfileInfo.useDefaultFlags.PSObject.Properties[$ResourceName]) {{
+            $ProfileInfo.useDefaultFlags.$ResourceName = $UseDefault
         }} else {{
-            $ProfileInfo.useDefaultFlags | Add-Member -NotePropertyName 'settings' -NotePropertyValue $UseDefault
+            $ProfileInfo.useDefaultFlags | Add-Member -NotePropertyName $ResourceName -NotePropertyValue $UseDefault
         }}
     }}
 
     foreach ($ProfileName in $SharedSettingsProfiles) {{
         $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
-        Set-ProfileSettingsInheritance -ProfileInfo $ProfileInfo -UseDefault $true
+        Set-ProfileResourceInheritance -ProfileInfo $ProfileInfo -ResourceName 'settings' -UseDefault $true
         Write-Host "$ProfileName Profile 已设置为共享 Default settings.json。"
     }}
 
     foreach ($ProfileName in $ProfileSettings.Keys) {{
         $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
-        Set-ProfileSettingsInheritance -ProfileInfo $ProfileInfo -UseDefault $false
+        Set-ProfileResourceInheritance -ProfileInfo $ProfileInfo -ResourceName 'settings' -UseDefault $false
         $Source = Join-Path $Root $ProfileSettings[$ProfileName]
         $Target = Join-Path $UserDataRoot "profiles\\$($ProfileInfo.location)\\settings.json"
         Copy-SettingsFile -Source $Source -Target $Target -Label $ProfileName
+    }}
+
+    foreach ($ProfileName in $SharedProfileResources.Keys) {{
+        $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
+        foreach ($ResourceName in $SharedProfileResources[$ProfileName]) {{
+            Set-ProfileResourceInheritance `
+                -ProfileInfo $ProfileInfo `
+                -ResourceName $ResourceName `
+                -UseDefault $true
+            Write-Host "$ProfileName Profile 已设置为共享 Default $ResourceName。"
+        }}
+    }}
+
+    foreach ($ProfileName in $ProfileResources.Keys) {{
+        $ProfileInfo = Get-ProfileMetadata -Name $ProfileName
+        $ProfileRoot = Join-Path $UserDataRoot "profiles\\$($ProfileInfo.location)"
+        foreach ($ResourceName in $ProfileResources[$ProfileName].Keys) {{
+            Set-ProfileResourceInheritance `
+                -ProfileInfo $ProfileInfo `
+                -ResourceName $ResourceName `
+                -UseDefault $false
+            $Source = Join-Path $Root $ProfileResources[$ProfileName][$ResourceName]
+            $Target = Get-ProfileResourceTarget -Base $ProfileRoot -ResourceName $ResourceName
+            Copy-ProfileResource `
+                -Source $Source `
+                -Target $Target `
+                -Label "$ProfileName $ResourceName" `
+                -Directory ($ResourceName -eq 'snippets')
+        }}
     }}
 
     # Windows PowerShell 5 的 Set-Content -Encoding UTF8 会写入 BOM，
@@ -858,22 +1204,54 @@ def build_bundle(config: Config, archive_only: bool = False,
                 "source": release.download_url,
             })
 
+        profile_indexes = {
+            name: index
+            for index, (name, _) in enumerate(config.extension_profiles, start=1)
+        }
         settings_target = root / "user-data" / "default" / "settings.json"
         _copy_or_create_empty_settings(config.settings, settings_target)
         profile_settings_entries: dict[str, dict[str, Any]] = {}
-        for index, profile_setting in enumerate(config.profile_settings, start=1):
+        for profile_setting in config.profile_settings:
             if profile_setting.use_default:
                 profile_settings_entries[profile_setting.name] = {"use_default": True}
                 continue
+            index = profile_indexes[profile_setting.name]
             profile_target = root / "user-data" / "profiles" / f"profile-{index}" / "settings.json"
             _copy_or_create_empty_settings(profile_setting.source, profile_target)
             profile_settings_entries[profile_setting.name] = {
                 "file": profile_target.relative_to(root).as_posix(),
                 "sha256": sha256_file(profile_target),
             }
+
+        resource_names = {
+            "keybindings": "keybindings.json",
+            "snippets": "snippets",
+            "tasks": "tasks.json",
+            "mcp": "mcp.json",
+        }
+        default_resource_entries: dict[str, dict[str, Any]] = {}
+        for kind, source in config.resources:
+            target = root / "user-data" / "default" / resource_names[kind]
+            default_resource_entries[kind] = _copy_resource(source, target, root)
+        profile_resource_entries: dict[str, dict[str, dict[str, Any]]] = {}
+        for resource in config.profile_resources:
+            profile_entry = profile_resource_entries.setdefault(resource.name, {})
+            if resource.use_default:
+                profile_entry[resource.kind] = {"use_default": True}
+                continue
+            index = profile_indexes[resource.name]
+            target = (
+                root
+                / "user-data"
+                / "profiles"
+                / f"profile-{index}"
+                / resource_names[resource.kind]
+            )
+            profile_entry[resource.kind] = _copy_resource(resource.source, target, root)
         manifest = {
-            "schema_version": 3,
+            "schema_version": 4,
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "install": {"mode": config.install_mode},
             "vscode": {
                 "version": config.version,
                 "package": config.package,
@@ -897,6 +1275,10 @@ def build_bundle(config: Config, archive_only: bool = False,
                 },
                 "profiles": profile_settings_entries,
             },
+            "resources": {
+                "default": default_resource_entries,
+                "profiles": profile_resource_entries,
+            },
         }
         _write_support_files(root, config, manifest)
         root.replace(final_root)
@@ -904,8 +1286,11 @@ def build_bundle(config: Config, archive_only: bool = False,
         progress("创建 ZIP 压缩包...")
         with zipfile.ZipFile(partial_zip, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for item in sorted(final_root.rglob("*")):
-                if item.is_file():
-                    archive.write(item, Path(bundle_name) / item.relative_to(final_root))
+                archive_name = Path(bundle_name) / item.relative_to(final_root)
+                if item.is_dir():
+                    archive.writestr(archive_name.as_posix().rstrip("/") + "/", "")
+                elif item.is_file():
+                    archive.write(item, archive_name)
         partial_zip.replace(final_zip)
         if archive_only:
             shutil.rmtree(final_root)

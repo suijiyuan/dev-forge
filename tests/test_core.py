@@ -9,8 +9,10 @@ from dev_forge.core import (
     Config,
     ExtensionRelease,
     PackagerError,
+    ProfileResource,
     ProfileSettings,
     build_bundle,
+    find_resource,
     find_settings,
     load_config,
     query_extension,
@@ -37,9 +39,13 @@ class CoreTests(unittest.TestCase):
             settings = user_root / "profiles" / "profile-id" / "settings.json"
             settings.parent.mkdir(parents=True)
             settings.write_text("{}", encoding="utf-8")
+            snippets = settings.parent / "snippets"
+            snippets.mkdir()
+            (snippets / "java.json").write_text("{}", encoding="utf-8")
 
             with patch("dev_forge.core.user_data_root", return_value=user_root):
                 self.assertEqual(find_settings("Java"), settings.resolve())
+                self.assertEqual(find_resource("snippets", "Java"), snippets.resolve())
                 self.assertIsNone(find_settings("Python"))
 
     def test_selects_latest_stable_compatible_platform(self):
@@ -135,6 +141,57 @@ class CoreTests(unittest.TestCase):
                 ProfileSettings("Python", python_settings.resolve()),
             ))
 
+    def test_config_supports_install_mode_and_profile_resources(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            keybindings = base / "keybindings.json"
+            keybindings.write_text("[]", encoding="utf-8")
+            snippets = base / "snippets"
+            snippets.mkdir()
+            (snippets / "python.json").write_text("{}", encoding="utf-8")
+            tasks = base / "python-tasks.json"
+            tasks.write_text('{"version":"2.0.0","tasks":[]}', encoding="utf-8")
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "install": {"mode": "replace"},
+                "extensions": {"profiles": {"Python": ["sample.python"]}},
+                "resources": {
+                    "default": {
+                        "keybindings": str(keybindings),
+                        "snippets": str(snippets),
+                    },
+                    "profiles": {
+                        "Python": {
+                            "keybindings": {"use_default": True},
+                            "tasks": str(tasks),
+                        },
+                    },
+                },
+            }), encoding="utf-8")
+
+            loaded = load_config(config)
+
+            self.assertEqual(loaded.install_mode, "replace")
+            self.assertEqual(loaded.resources, (
+                ("keybindings", keybindings.resolve()),
+                ("snippets", snippets.resolve()),
+            ))
+            self.assertEqual(loaded.profile_resources, (
+                ProfileResource("Python", "keybindings", None, True),
+                ProfileResource("Python", "tasks", tasks.resolve()),
+            ))
+
+    def test_config_rejects_unknown_install_mode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = Path(temp) / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "install": {"mode": "clean"},
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(PackagerError, "merge 或 replace"):
+                load_config(config)
+
     def test_config_rejects_settings_for_undeclared_profile(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -173,6 +230,13 @@ class CoreTests(unittest.TestCase):
             settings.write_text('{"editor.fontSize": 15}', encoding="utf-8")
             python_settings = base / "python-settings.json"
             python_settings.write_text('{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8")
+            keybindings = base / "keybindings.json"
+            keybindings.write_text('[{"key":"ctrl+k","command":"sample.command"}]', encoding="utf-8")
+            snippets = base / "snippets"
+            snippets.mkdir()
+            (snippets / "global.code-snippets").write_text('{"sample":{"prefix":"s","body":"sample"}}', encoding="utf-8")
+            python_tasks = base / "python-tasks.json"
+            python_tasks.write_text('{"version":"2.0.0","tasks":[]}', encoding="utf-8")
             config = Config(
                 "1.95.3",
                 "system",
@@ -187,6 +251,15 @@ class CoreTests(unittest.TestCase):
                 (
                     ProfileSettings("Backend Java", None, True),
                     ProfileSettings("Python", python_settings),
+                ),
+                "replace",
+                (
+                    ("keybindings", keybindings),
+                    ("snippets", snippets),
+                ),
+                (
+                    ProfileResource("Backend Java", "keybindings", None, True),
+                    ProfileResource("Python", "tasks", python_tasks),
                 ),
             )
 
@@ -206,7 +279,14 @@ class CoreTests(unittest.TestCase):
                 self.assertIn(prefix + "install.ps1", names)
                 self.assertIn(prefix + "user-data/default/settings.json", names)
                 self.assertIn(prefix + "user-data/profiles/profile-2/settings.json", names)
+                self.assertIn(prefix + "user-data/default/keybindings.json", names)
+                self.assertIn(prefix + "user-data/default/snippets/global.code-snippets", names)
+                self.assertIn(prefix + "user-data/profiles/profile-2/tasks.json", names)
                 install_script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
+                self.assertIn("[string]$Mode = 'replace'", install_script)
+                self.assertIn("[switch]$ForceResources", install_script)
+                self.assertIn("if ($Mode -eq 'replace')", install_script)
+                self.assertIn("merge 模式：保留本机现有扩展", install_script)
                 self.assertIn("$ArchiveMode = $false", install_script)
                 self.assertNotIn("if (false)", install_script)
                 self.assertIn(
@@ -271,14 +351,21 @@ class CoreTests(unittest.TestCase):
                 )
                 self.assertIn("$SharedSettingsProfiles = @(\n    'Backend Java'", install_script)
                 self.assertIn("'Python' = 'user-data\\profiles\\profile-2\\settings.json'", install_script)
-                self.assertIn("Set-ProfileSettingsInheritance", install_script)
+                self.assertIn("Set-ProfileResourceInheritance", install_script)
+                self.assertIn("$DefaultResources = [ordered]@{", install_script)
+                self.assertIn("'keybindings' = 'user-data\\default\\keybindings.json'", install_script)
+                self.assertIn("$SharedProfileResources = [ordered]@{", install_script)
+                self.assertIn("$ProfileResources = [ordered]@{", install_script)
+                self.assertIn("function Copy-ProfileResource", install_script)
+                self.assertIn("-ResourceName $ResourceName", install_script)
                 self.assertIn("useDefaultFlags", install_script)
                 self.assertIn("New-Object System.Text.UTF8Encoding($false)", install_script)
                 self.assertIn("[IO.File]::WriteAllText($StoragePath", install_script)
                 self.assertNotIn("Set-Content -LiteralPath $StoragePath", install_script)
                 manifest = json.loads(archive.read(prefix + "manifest.json"))
                 self.assertEqual(manifest["extensions"][0]["version"], "2.3.0")
-                self.assertEqual(manifest["schema_version"], 3)
+                self.assertEqual(manifest["schema_version"], 4)
+                self.assertEqual(manifest["install"], {"mode": "replace"})
                 self.assertEqual(
                     manifest["extension_profiles"]["profiles"]["Backend Java"],
                     ["redhat.java"],
@@ -286,6 +373,18 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(
                     manifest["settings"]["profiles"]["Backend Java"],
                     {"use_default": True},
+                )
+                self.assertEqual(
+                    manifest["resources"]["profiles"]["Backend Java"]["keybindings"],
+                    {"use_default": True},
+                )
+                self.assertEqual(
+                    manifest["resources"]["profiles"]["Python"]["tasks"]["file"],
+                    "user-data/profiles/profile-2/tasks.json",
+                )
+                self.assertEqual(
+                    manifest["resources"]["default"]["snippets"]["files"][0]["file"],
+                    "user-data/default/snippets/global.code-snippets",
                 )
 
     def test_archive_bundle_generates_valid_powershell_boolean(self):
@@ -304,6 +403,7 @@ class CoreTests(unittest.TestCase):
                 prefix = "dev-forge-1.95.3-win32-arm64/"
                 script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
                 self.assertIn("$ArchiveMode = $true", script)
+                self.assertIn("[string]$Mode = 'merge'", script)
                 self.assertIn("Expand-Archive", script)
                 self.assertNotIn("if (true)", script)
                 self.assertEqual(
