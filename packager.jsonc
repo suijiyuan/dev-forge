@@ -5,7 +5,7 @@
     // 此版本既用于下载 VS Code，也用于筛选兼容的扩展版本。
     // 支持示例："1.95.3"、"1.100.0"。
     // 不支持："latest"、"1.95"、Insiders 版本或版本范围。
-    "version": "1.133.0",
+    "version": "1.134.0",
 
     // 可选，默认值："system"。Windows 发行包类型：
     // - "system"：System Installer，输出 .exe，通常用于整机安装；
