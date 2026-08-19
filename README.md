@@ -339,7 +339,9 @@ extensions/ms-python.python-2026.4.0-win32-x64.vsix
 创建和插件安装命令不会传入 `--user-data-dir`，确保它们使用与用户正常启动 VS Code
 完全相同的默认用户数据目录，安装后的 Profile 会直接出现在 Profiles 菜单中。
 
-完全离线使用时，应将所需依赖也显式加入 `extensions` 配置。
+完全离线使用时，应将所需依赖也显式加入 `extensions` 配置。生成的安装命令会传入
+`--do-not-include-pack-dependencies`，防止批量参数和 VS Code 自动展开任务同时安装同一个
+扩展，引发扩展目录重命名冲突。
 
 可用下面的命令获取本机已安装扩展的 ID：
 
@@ -555,7 +557,8 @@ settings、keybindings、snippets、tasks 等其他配置不会被删除。
 
 扩展以每批最多 20 个 VSIX 的方式安装，同一 Profile 不再为每个扩展单独启动一次
 `code.cmd`。在 `merge` 模式下，脚本还会先读取每个 Profile 的 `ID@版本` 并跳过完全一致的
-扩展。同一个 VSIX 配置到多个 Profile 时，脚本仍会在必要时关闭安装过程中残留的 `Code`
+扩展。安装命令禁止自动展开 Extension Pack 和依赖，因此离线所需成员必须在配置中显式
+列出。同一个 VSIX 配置到多个 Profile 时，脚本仍会在必要时关闭安装过程中残留的 `Code`
 进程；如果批量安装失败，会拆分为单个扩展并自动重试，以保留具体失败扩展的错误信息。
 对于共享设置的 Profile，脚本通过 `%APPDATA%\Code\User\globalStorage\storage.json`
 设置 `useDefaultFlags.settings=true`；独立设置则写入对应 Profile ID 目录。使用

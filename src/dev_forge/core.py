@@ -655,6 +655,7 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
 7. keybindings、snippets、tasks、MCP 默认保留已有文件；使用 -ForceResources 可覆盖。
 8. 已安装相同版本的 VS Code 默认跳过；使用 -ForceVSCodeInstall 可强制重新安装。
 9. merge 模式会跳过各 Profile 中已经达到离线清单版本的扩展。
+10. 扩展包成员和依赖必须显式打包，安装时不会由 VS Code CLI 自动展开。
 
 详细版本和 SHA-256 校验值见 manifest.json。
 """
@@ -1045,6 +1046,9 @@ function Install-ExtensionBatch {{
             $IsRepeatedInstall = $true
         }}
     }}
+    # 清单已经显式包含离线所需扩展。禁止 CLI 再次展开 Extension Pack 和依赖，
+    # 避免批量参数与自动展开任务并发安装同一 VSIX，造成 EPERM rename 冲突。
+    $Arguments += '--do-not-include-pack-dependencies'
     $Arguments += '--force'
     if ($Profile) {{ $Arguments += @('--profile', $Profile) }}
 

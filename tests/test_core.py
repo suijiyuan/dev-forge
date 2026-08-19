@@ -343,6 +343,7 @@ class CoreTests(unittest.TestCase):
                 self.assertIn("function Install-ExtensionBatch", install_script)
                 self.assertIn("$ExtensionBatchSize = 20", install_script)
                 self.assertIn("$Arguments += @('--install-extension', $ExtensionPath)", install_script)
+                self.assertIn("$Arguments += '--do-not-include-pack-dependencies'", install_script)
                 self.assertIn("批量安装失败，将拆分为单个扩展重试", install_script)
                 self.assertIn("扩展安装失败，将在清理 VS Code 进程后重试", install_script)
                 self.assertIn("function Test-ProfileAvailable", install_script)
