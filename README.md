@@ -12,7 +12,7 @@
   - 优先匹配目标 Windows 架构，其次选择通用包；
 - 支持 Default 与 Profile 设置；Profile 可共享同一份 Default `settings.json`，也可使用独立文件；
 - 支持 `keybindings.json`、`snippets/`、`tasks.json`、`mcp.json`，并可按资源继承 Default；
-- 支持安全的 `merge` 和完全重建扩展的 `replace` 两种安装模式；
+- 默认保留本机已有扩展，并可通过 `-ReplaceExtensions` 完全重建扩展；
 - 生成文件哈希、版本清单和离线安装脚本；
 - 安装脚本按配置自动创建任意 Profile：通用扩展同时用于 Default 和所有 Profile，专属扩展仅安装到对应 Profile；
 - 输出一个结构固定的 ZIP 压缩包。
@@ -108,9 +108,6 @@ Release 产物。若把某项改回 `"auto"`，GitHub 托管 runner 仍无法读
     "package": "system",
     "arch": "x64"
   },
-  "install": {
-    "mode": "merge"
-  },
   "extensions": {
     "default": ["eamodio.gitlens"],
     "profiles": {
@@ -155,11 +152,9 @@ Release 产物。若把某项改回 `"auto"`，GitHub 托管 runner 仍无法读
 | `vscode.version` | 字符串 | 是 | 无 | 完整的 `major.minor.patch`，如 `1.95.3` |
 | `vscode.package` | 字符串 | 否 | `system` | `system`、`user`、`archive` |
 | `vscode.arch` | 字符串 | 否 | `x64` | `x64`、`arm64` |
-| `install` | 对象 | 否 | `{"mode":"merge"}` | 离线安装行为 |
-| `install.mode` | 字符串 | 否 | `merge` | `merge`、`replace` |
 | `extensions` | 数组或对象 | 否 | `[]` | 旧式 ID 数组，或包含 `default`、`profiles` 的对象 |
 | `settings` | 字符串或对象 | 否 | `auto` | Default 路径及 Profile 共享/独立设置 |
-| `resources` | 对象 | 否 | `{}` | keybindings、snippets、tasks、MCP 资源 |
+| `resources` | 对象 | 否 | `{}` | keybindings、snippets、tasks、MCP、XML Catalog 资源 |
 | `output_dir` | 字符串 | 否 | `dist` | 一个目录路径 |
 
 ### `vscode`
@@ -222,28 +217,18 @@ VS Code。如果检测到的安装方式中不包含打包时的 `package`，脚
 | `archive` | `x64` | `win32-x64-archive` | `.zip` |
 | `archive` | `arm64` | `win32-arm64-archive` | `.zip` |
 
-### `install`
+### 旧版 `install` 配置兼容性
 
-- 类型：对象。
-- 必填：否。
-- 默认值：`{"mode":"merge"}`。
-- `mode` 只允许 `merge` 或 `replace`。
+新配置不再需要 `install.mode`。生成的 `install.ps1` 默认保留本机已有扩展；安装时传入
+`-ReplaceExtensions`，才会删除当前用户扩展目录和各 Profile 的 `extensions.json`，然后
+完全按照离线清单重建扩展集合。未列入清单的本地扩展会被删除。
 
-两种模式只控制扩展清理策略，不会改变 settings 和其他 Profile 资源的覆盖开关：
+旧配置中的 `{"install":{"mode":"merge"}}` 和 `{"install":{"mode":"replace"}}` 仍可读取，
+以免已有自动化立即失效。其中旧版 `replace` 会让生成脚本默认启用 `-ReplaceExtensions`；
+运行时可传入 `-ReplaceExtensions:$false` 临时关闭。建议从配置中移除 `install`，在真正需要
+清理扩展时显式使用安装参数。
 
-- `merge`：保留本机已有扩展；各 Profile 中 ID 和版本均与离线清单一致的扩展会跳过，
-  缺失或版本不同的扩展才会安装。
-- `replace`：安装 VS Code 前删除当前用户扩展目录和各 Profile 的 `extensions.json`，然后
-  完全按照离线清单重建扩展集合。未列入清单的本地扩展会被删除。
-
-生成的 `install.ps1` 使用配置值作为默认模式，也可以在安装时临时覆盖：
-
-```powershell
-.\install.ps1 -Mode merge
-.\install.ps1 -Mode replace
-```
-
-为了兼容旧配置，省略 `install` 时使用更安全的 `merge`。
+`-ReplaceExtensions` 只控制扩展清理策略，不会改变 settings 和其他 Profile 资源的覆盖开关。
 
 ### `extensions`
 
@@ -462,6 +447,7 @@ Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读�
 | `snippets` | 目录 | `snippets/` |
 | `tasks` | JSON/JSONC 文件 | `tasks.json` |
 | `mcp` | JSON/JSONC 文件 | `mcp.json` |
+| `xml` | 包含 `catalog.xml` 的目录 | `xml/`，仅支持 Default |
 
 完整示例：
 
@@ -471,7 +457,8 @@ Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读�
     "keybindings": "auto",
     "snippets": "./vscode-profile/snippets",
     "tasks": "./vscode-profile/tasks.json",
-    "mcp": "./vscode-profile/mcp.json"
+    "mcp": "./vscode-profile/mcp.json",
+    "xml": "./vscode-profile/xml"
   },
   "profiles": {
     "Java": {
@@ -487,18 +474,25 @@ Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读�
 规则如下：
 
 - `default` 和 `profiles` 都可以省略；未配置的资源不会被打包，也不会修改目标机器。
-- 文件资源可以使用 `"auto"` 或文件路径；`snippets` 可以使用 `"auto"` 或目录路径。
+- 文件资源可以使用 `"auto"` 或文件路径；`snippets`、`xml` 可以使用 `"auto"` 或目录路径。
+- `xml` 只允许配置到 `resources.default`，目录中必须存在 `catalog.xml`。安装器将其部署到
+  `%APPDATA%\Code\User\xml`，并把目标机绝对路径写入 Default 及独立 Profile 的
+  `xml.catalogs`；共享 Default settings 的 Profile 会直接继承。
 - Default 的 `"auto"` 从本机 Default Profile 读取；Profile 的 `"auto"` 从本机同名
   Profile 读取。自动来源不存在时跳过该资源，不生成空文件。
 - 显式路径不存在或类型不符时停止打包。
-- `{"use_default": true}` 会设置对应的 `useDefaultFlags`，让 Profile 直接使用 Default
+- 除 `xml` 外，`{"use_default": true}` 会设置对应的 `useDefaultFlags`，让 Profile 直接使用 Default
   资源，不复制第二份文件。
 - `resources.profiles` 的名称必须已在 `extensions.profiles` 中声明。
-- snippets 会递归打包，manifest 为每个文件记录 SHA-256。
+- snippets 和 XML Catalog 目录会递归打包，manifest 为每个文件记录 SHA-256。
 
-安装时默认不覆盖已有文件；snippets 会保留已有文件并复制缺失文件。使用
-`.\install.ps1 -ForceResources` 可覆盖 keybindings、tasks、MCP 和同名 snippet 文件。
-该参数不控制 `settings.json`；settings 仍由 `-ForceSettings` 单独控制。
+安装时默认不覆盖已有文件；snippets 和 XML Catalog 目录会保留已有文件并复制缺失文件。
+使用 `.\install.ps1 -ForceResources` 可覆盖 keybindings、tasks、MCP、XML Catalog 和
+同名 snippet 文件。该参数不控制 `settings.json`；settings 仍由 `-ForceSettings` 单独
+控制。如果目标 settings 已存在且未覆盖，安装器会保留它并警告 XML Catalog 尚未注册。
+仓库内置的 `config/xml/catalog.xml` 当前映射 Maven 4.0.0 XSD 的旧地址、HTTP、HTTPS
+地址，以及 MyBatis 3 Mapper DTD 的 HTTP systemId；增加其他 DTD/XSD 时，将文件放入
+该目录并在 Catalog 中增加映射即可。
 
 ### `output_dir`
 
@@ -561,14 +555,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 安装参数：
 
 ```powershell
-# 保留现有扩展，只合并离线清单；这是默认值
-.\install.ps1 -Mode merge
+# 保留现有扩展，只安装缺失或版本不同的扩展；这是默认行为
+.\install.ps1
 
 # 清空本地扩展后严格按清单重建
-.\install.ps1 -Mode replace
+.\install.ps1 -ReplaceExtensions
 
 # 同时覆盖 settings 和其他 Profile 资源
-.\install.ps1 -Mode replace -ForceSettings -ForceResources
+.\install.ps1 -ReplaceExtensions -ForceSettings -ForceResources
 
 # 即使检测到相同版本，也强制重新运行 VS Code 安装器
 .\install.ps1 -ForceVSCodeInstall
@@ -579,7 +573,7 @@ Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.c
 检测 `Code` 进程并给出明确错误。
 
 脚本会先检查 VS Code 安装包、清单中的所有 VSIX、settings 和 Profile 资源是否存在，并
-确认没有正在运行的 `Code` 进程。`merge` 模式直接保留现有扩展；`replace` 模式才会递归
+确认没有正在运行的 `Code` 进程。默认直接保留现有扩展；传入 `-ReplaceExtensions` 才会递归
 删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境变量指定的
 目录，以及 ZIP Archive Mode 已存在的 `data\extensions`，再按清单重建。
 
@@ -587,7 +581,7 @@ Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.c
 跳过 VS Code 安装器；需要修复安装时可使用 `-ForceVSCodeInstall`。Archive Mode 仍在目标
 目录不存在时解压，目录已经存在时继续复用。
 
-在 `replace` 模式下，删除物理扩展目录时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
+使用 `-ReplaceExtensions` 时，删除物理扩展目录的同时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
 `extensions.json` 扩展清单，防止清单继续引用已经不存在的扩展目录。Profile 本身以及
 settings、keybindings、snippets、tasks 等其他配置不会被删除。
 
@@ -597,7 +591,7 @@ settings、keybindings、snippets、tasks 等其他配置不会被删除。
 本脚本的清理范围内。
 
 扩展以每批最多 20 个 VSIX 的方式安装，同一 Profile 不再为每个扩展单独启动一次
-`code.cmd`。在 `merge` 模式下，脚本还会先读取每个 Profile 的 `ID@版本` 并跳过完全一致的
+`code.cmd`。默认情况下，脚本还会先读取每个 Profile 的 `ID@版本` 并跳过完全一致的
 扩展。安装命令禁止自动展开 Extension Pack 和依赖，因此离线所需成员必须在配置中显式
 列出。同一个 VSIX 配置到多个 Profile 时，脚本仍会在必要时关闭安装过程中残留的 `Code`
 进程；如果批量安装失败，会拆分为单个扩展并自动重试，以保留具体失败扩展的错误信息。
@@ -607,7 +601,7 @@ settings、keybindings、snippets、tasks 等其他配置不会被删除。
 
 keybindings、snippets、tasks、MCP 使用相同的 Profile 元数据机制。独立资源写入对应
 Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-ForceResources` 控制，
-不会因为选择 `replace` 就自动覆盖。
+不会因为使用 `-ReplaceExtensions` 就自动覆盖。
 
 ## 开发与测试
 

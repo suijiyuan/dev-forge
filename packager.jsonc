@@ -20,13 +20,6 @@
     "arch": "x64"
   },
 
-  // 可选。离线安装扩展时的默认模式；运行 install.ps1 时可用 -Mode 临时覆盖。
-  // - "merge"（默认）：保留本机已有扩展，只安装或更新本清单中的扩展；
-  // - "replace"：先删除当前用户本地扩展及各 Profile 扩展清单，再按本清单重建。
-  "install": {
-    "mode": "merge"
-  },
-
   // 可选。扩展可以按 Default 和任意数量的 Profile 分组。
   // default 中的通用扩展会安装到 Default，并同步安装到每个已声明的 Profile。
   // profiles 中的扩展只安装到对应 Profile；Profile 不存在时由 VS Code 自动创建。
@@ -130,18 +123,20 @@
   },
 
   // 可选。除 settings.json 外的 VS Code Profile 资源。
-  // 支持 keybindings、snippets、tasks、mcp；未配置的资源不会打包或修改。
+  // default 支持 keybindings、snippets、tasks、mcp、xml；xml 必须是包含
+  // catalog.xml 的目录，并安装到目标机器的 VS Code 用户配置目录。
   // 当前统一从仓库内的 config/ 读取，确保 GitHub Actions 可访问；
   // 直接编辑对应文件或在 snippets/ 中增删 *.code-snippets 即可。
-  // default 中每项也可使用 "auto"，或指定其他路径；snippets 必须指定目录。
-  // profiles 中可同样指定独立来源，也可用 {"use_default": true} 共享 Default。
+  // default 中每项也可使用 "auto"，或指定其他路径；snippets、xml 必须指定目录。
+  // xml 仅支持 default；其他资源可在 profiles 中指定独立来源或共享 Default。
   // "auto" 找不到对应本机资源时会跳过，不生成空文件。
   "resources": {
     "default": {
       "keybindings": "./config/keybindings.json",
       "snippets": "./config/snippets",
       "tasks": "./config/tasks.json",
-      "mcp": "./config/mcp.json"
+      "mcp": "./config/mcp.json",
+      "xml": "./config/xml"
     },
     "profiles": {
       "Profile 10 - Java": {

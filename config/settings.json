@@ -26,6 +26,10 @@
     "window.zoomLevel": 1,
     "workbench.editor.empty.hint": "hidden",
     "workbench.startupEditor": "none",
+    "xml.catalogs": [],
+    "xml.downloadExternalResources.enabled": false,
+    "xml.server.preferBinary": false,
+    "xml.validation.enabled": true,
     "yaml.disableSchemaDetection": [
         "**/.forgejo/workflows/*.yaml",
         "**/.forgejo/workflows/*.yml",

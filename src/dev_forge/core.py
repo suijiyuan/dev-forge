@@ -21,6 +21,7 @@ from .semver import Version, satisfies
 
 
 GALLERY_QUERY_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
+XML_CATALOG_SETTING_TOKEN = "__DEV_FORGE_XML_CATALOG__"
 
 
 class PackagerError(RuntimeError):
@@ -52,7 +53,7 @@ class Config:
     output_dir: Path
     extension_profiles: tuple[tuple[str, tuple[str, ...]], ...] = ()
     profile_settings: tuple[ProfileSettings, ...] = ()
-    install_mode: str = "merge"
+    replace_extensions: bool = False
     resources: tuple[tuple[str, Path], ...] = ()
     profile_resources: tuple[ProfileResource, ...] = ()
 
@@ -108,6 +109,7 @@ def find_resource(kind: str, profile_name: str | None = None) -> Path | None:
         "snippets": "snippets",
         "tasks": "tasks.json",
         "mcp": "mcp.json",
+        "xml": "xml",
     }
     if kind not in filenames:
         raise ValueError(f"未知的 VS Code Profile 资源: {kind}")
@@ -115,7 +117,7 @@ def find_resource(kind: str, profile_name: str | None = None) -> Path | None:
     if root is None:
         return None
     candidate = root / filenames[kind]
-    expected = candidate.is_dir() if kind == "snippets" else candidate.is_file()
+    expected = candidate.is_dir() if kind in {"snippets", "xml"} else candidate.is_file()
     return candidate.resolve() if expected else None
 
 
@@ -201,9 +203,10 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     if unknown_install_keys:
         names = "、".join(sorted(unknown_install_keys))
         raise PackagerError(f"install 包含未知配置项: {names}")
-    install_mode = install_value.get("mode", "merge")
-    if install_mode not in {"merge", "replace"}:
+    legacy_install_mode = install_value.get("mode", "merge")
+    if legacy_install_mode not in {"merge", "replace"}:
         raise PackagerError("install.mode 只能是 merge 或 replace")
+    replace_extensions = legacy_install_mode == "replace"
 
     extensions_value = raw.get("extensions", [])
     extension_profiles: list[tuple[str, tuple[str, ...]]] = []
@@ -283,7 +286,8 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     else:
         raise PackagerError("settings 必须是路径字符串或包含 default/profiles 的对象")
 
-    resource_kinds = {"keybindings", "snippets", "tasks", "mcp"}
+    default_resource_kinds = {"keybindings", "snippets", "tasks", "mcp", "xml"}
+    profile_resource_kinds = {"keybindings", "snippets", "tasks", "mcp"}
     resources_value = raw.get("resources", {})
     if not isinstance(resources_value, dict):
         raise PackagerError("resources 必须是包含 default/profiles 的对象")
@@ -295,7 +299,7 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
     default_resources_value = resources_value.get("default", {})
     if not isinstance(default_resources_value, dict):
         raise PackagerError("resources.default 必须是以资源名称为键的对象")
-    unknown_default_resources = set(default_resources_value) - resource_kinds
+    unknown_default_resources = set(default_resources_value) - default_resource_kinds
     if unknown_default_resources:
         names = "、".join(sorted(unknown_default_resources))
         raise PackagerError(f"resources.default 包含未知资源: {names}")
@@ -325,7 +329,7 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
         profile_name = extension_profile_names[normalized_name]
         if not isinstance(profile_value, dict):
             raise PackagerError(f"resources.profiles.{profile_name} 必须是对象")
-        unknown_profile_resources = set(profile_value) - resource_kinds
+        unknown_profile_resources = set(profile_value) - profile_resource_kinds
         if unknown_profile_resources:
             names = "、".join(sorted(unknown_profile_resources))
             raise PackagerError(f"resources.profiles.{profile_name} 包含未知资源: {names}")
@@ -354,7 +358,7 @@ def load_config(path: Path, settings_override: str | None = None, output_overrid
         output_dir,
         tuple(extension_profiles),
         tuple(profile_settings),
-        install_mode,
+        replace_extensions,
         tuple(resources),
         tuple(profile_resources),
     )
@@ -395,12 +399,17 @@ def _resolve_resource_source(
     if not isinstance(value, str):
         raise PackagerError(f"{field} 必须是路径或 auto")
     if value == "auto":
-        return find_resource(kind, profile_name)
-    source = _relative_to(base, value)
-    valid = source.is_dir() if kind == "snippets" else source.is_file()
+        source = find_resource(kind, profile_name)
+        if source is None:
+            return None
+    else:
+        source = _relative_to(base, value)
+    valid = source.is_dir() if kind in {"snippets", "xml"} else source.is_file()
     if not valid:
-        expected = "目录" if kind == "snippets" else "文件"
+        expected = "目录" if kind in {"snippets", "xml"} else "文件"
         raise PackagerError(f"{field} 指定的{expected}不存在: {source}")
+    if kind == "xml" and not (source / "catalog.xml").is_file():
+        raise PackagerError(f"{field} 指定的目录缺少 catalog.xml: {source}")
     return source
 
 
@@ -531,6 +540,55 @@ def _copy_or_create_empty_settings(source: Path | None, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+def _strip_json_trailing_commas(content: str) -> str:
+    result = list(content)
+    in_string = False
+    escaped = False
+    for index, char in enumerate(content):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char != ",":
+            continue
+        following = index + 1
+        while following < len(content) and content[following].isspace():
+            following += 1
+        if following < len(content) and content[following] in "]}":
+            result[index] = " "
+    return "".join(result)
+
+
+def _add_xml_catalog_setting(target: Path) -> None:
+    try:
+        settings = json.loads(
+            _strip_json_trailing_commas(
+                _strip_json_comments(target.read_text(encoding="utf-8"))
+            )
+        )
+    except (OSError, json.JSONDecodeError, PackagerError) as exc:
+        raise PackagerError(f"无法为 XML Catalog 更新 settings.json {target}: {exc}") from exc
+    if not isinstance(settings, dict):
+        raise PackagerError(f"settings.json 顶层必须是对象: {target}")
+    catalogs = settings.get("xml.catalogs", [])
+    if not isinstance(catalogs, list) or not all(isinstance(item, str) for item in catalogs):
+        raise PackagerError(f"settings.json 中的 xml.catalogs 必须是字符串数组: {target}")
+    if XML_CATALOG_SETTING_TOKEN not in catalogs:
+        catalogs.append(XML_CATALOG_SETTING_TOKEN)
+    settings["xml.catalogs"] = catalogs
+    target.write_text(
+        json.dumps(settings, ensure_ascii=False, indent=4) + "\n",
+        encoding="utf-8",
+    )
+
+
 def _copy_resource(source: Path, target: Path, root: Path) -> dict[str, Any]:
     if source.is_dir():
         shutil.copytree(source, target)
@@ -642,19 +700,25 @@ def _powershell_nested_string_map(
 
 def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -> None:
     (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    extension_behavior = (
+        "旧版 install.mode=replace 使 -ReplaceExtensions 默认启用；可使用 "
+        "-ReplaceExtensions:$false 临时保留本机已有扩展。"
+        if config.replace_extensions
+        else "默认保留本机已有扩展；使用 -ReplaceExtensions 可先清理并重建扩展。"
+    )
     readme = f"""VS Code {config.version} Windows 离线安装包
 
 1. 在 PowerShell 中运行 .\\install.ps1。
-2. 默认安装模式是 {config.install_mode}；可使用 -Mode merge 或 -Mode replace 临时覆盖。
-3. merge 保留本机已有扩展；replace 会删除当前用户原有的扩展目录和各 Profile 的扩展清单。
+2. {extension_behavior}
+3. -ReplaceExtensions 会删除当前用户原有的扩展目录和各 Profile 的扩展清单。
 4. 脚本先检查离线文件、现有 VS Code 安装方式并确认 VS Code 已关闭，再按选择的模式处理扩展。
 5. 脚本按打包时的 packager.jsonc 配置创建 Profile：
    - 通用扩展安装到 Default 和所有已配置 Profile；
    - Profile 专属扩展仅安装到对应 Profile。
 6. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
-7. keybindings、snippets、tasks、MCP 默认保留已有文件；使用 -ForceResources 可覆盖。
+7. keybindings、snippets、tasks、MCP、XML Catalog 默认保留已有文件；使用 -ForceResources 可覆盖。
 8. 已安装相同版本的 VS Code 默认跳过；使用 -ForceVSCodeInstall 可强制重新安装。
-9. merge 模式会跳过各 Profile 中已经达到离线清单版本的扩展。
+9. 默认会跳过各 Profile 中已经达到离线清单版本的扩展。
 10. 扩展包成员和依赖必须显式打包，安装时不会由 VS Code CLI 自动展开。
 
 详细版本和 SHA-256 校验值见 manifest.json。
@@ -710,10 +774,9 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
         for name, values in resources_manifest["profiles"].items()
         if any(value.get("use_default") is not True for value in values.values())
     ])
-    default_install_mode = _powershell_literal(config.install_mode)
+    replace_extensions_literal = "$true" if config.replace_extensions else "$false"
     ps1 = f"""param(
-    [ValidateSet('merge', 'replace')]
-    [string]$Mode = {default_install_mode},
+    [switch]$ReplaceExtensions = {replace_extensions_literal},
     [switch]$ForceSettings,
     [switch]$ForceResources,
     [switch]$ForceVSCodeInstall
@@ -742,6 +805,7 @@ $ProfileSettings = {profile_settings}
 $DefaultResources = {default_resources}
 $SharedProfileResources = {shared_profile_resources}
 $ProfileResources = {profile_resources}
+$XmlCatalogSettingToken = {_powershell_literal(XML_CATALOG_SETTING_TOKEN)}
 
 if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {{
     throw "VS Code 安装文件不存在: $Installer"
@@ -772,7 +836,7 @@ foreach ($SettingsPath in @($RequiredSettingsFiles | Sort-Object -Unique)) {{
 }}
 foreach ($ResourceName in $DefaultResources.Keys) {{
     $ResourcePath = Join-Path $Root $DefaultResources[$ResourceName]
-    $PathType = if ($ResourceName -eq 'snippets') {{ 'Container' }} else {{ 'Leaf' }}
+    $PathType = if ($ResourceName -in @('snippets', 'xml')) {{ 'Container' }} else {{ 'Leaf' }}
     if (-not (Test-Path -LiteralPath $ResourcePath -PathType $PathType)) {{
         throw "Profile 资源不存在: $ResourcePath"
     }}
@@ -889,8 +953,8 @@ if ($RunningCodeProcesses.Count -gt 0) {{
     throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
 }}
 
-if ($Mode -eq 'replace') {{
-    Write-Warning 'replace 模式会删除本机现有扩展；如果已启用 Settings Sync，请先关闭 Extensions 和 Profiles 同步。'
+if ($ReplaceExtensions) {{
+    Write-Warning '-ReplaceExtensions 会删除本机现有扩展；如果已启用 Settings Sync，请先关闭 Extensions 和 Profiles 同步。'
     $UserExtensionsDirs = @(
         (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.vscode\\extensions')
     )
@@ -925,7 +989,7 @@ if ($Mode -eq 'replace') {{
         Remove-Item -LiteralPath $ExtensionStateFile -Force
     }}
 }} else {{
-    Write-Host 'merge 模式：保留本机现有扩展，只安装或更新离线包清单中的扩展。'
+    Write-Host '默认保留本机现有扩展，只安装或更新离线包清单中的扩展。'
 }}
 
 if ($ArchiveMode) {{
@@ -1147,7 +1211,7 @@ function Install-ProfileExtensions {{
 
     if ($RelativePaths.Count -eq 0) {{ return }}
     $ProfileLabel = if ($Profile) {{ $Profile }} else {{ 'Default' }}
-    $InstalledVersions = if ($Mode -eq 'merge') {{
+    $InstalledVersions = if (-not $ReplaceExtensions) {{
         Get-InstalledExtensionVersions -Profile $Profile
     }} else {{
         @{{}}
@@ -1160,7 +1224,7 @@ function Install-ProfileExtensions {{
             throw "扩展元数据不存在: $RelativePath"
         }}
         $InstalledVersion = $InstalledVersions[[string]$Metadata.Id]
-        if ($Mode -eq 'merge' -and $InstalledVersion -eq [string]$Metadata.Version) {{
+        if ((-not $ReplaceExtensions) -and $InstalledVersion -eq [string]$Metadata.Version) {{
             $SkippedCount++
             continue
         }}
@@ -1219,6 +1283,7 @@ function Get-ProfileResourceTarget {{
         'snippets' {{ 'snippets' }}
         'tasks' {{ 'tasks.json' }}
         'mcp' {{ 'mcp.json' }}
+        'xml' {{ 'xml' }}
         default {{ throw "未知的 Profile 资源: $ResourceName" }}
     }}
     return Join-Path $Base $Filename
@@ -1271,11 +1336,36 @@ function Copy-ProfileResource {{
     }}
 }}
 
+function Resolve-XmlCatalogSetting {{
+    param(
+        [Parameter(Mandatory = $true)][string]$SettingsPath,
+        [Parameter(Mandatory = $true)][string]$CatalogPath,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $SettingsContent = [IO.File]::ReadAllText($SettingsPath)
+    $CatalogJsonPath = $CatalogPath.Replace('\\', '\\\\')
+    if ($SettingsContent.Contains($CatalogJsonPath)) {{
+        Write-Host "$Label 已注册 XML Catalog: $CatalogPath"
+        return
+    }}
+    if (-not $SettingsContent.Contains($XmlCatalogSettingToken)) {{
+        Write-Warning "$Label settings.json 已保留，尚未注册 XML Catalog。使用 -ForceSettings 重新运行可写入配置。"
+        return
+    }}
+    $SettingsContent = $SettingsContent.Replace($XmlCatalogSettingToken, $CatalogJsonPath)
+    $Utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($SettingsPath, $SettingsContent, $Utf8WithoutBom)
+    Write-Host "$Label 已注册 XML Catalog: $CatalogPath"
+}}
+
+$DefaultSettingsTarget = Join-Path $UserDataRoot 'settings.json'
 Copy-SettingsFile `
     -Source $DefaultSettingsSource `
-    -Target (Join-Path $UserDataRoot 'settings.json') `
+    -Target $DefaultSettingsTarget `
     -Label 'Default'
 
+$XmlCatalogTarget = $null
 foreach ($ResourceName in $DefaultResources.Keys) {{
     $Source = Join-Path $Root $DefaultResources[$ResourceName]
     $Target = Get-ProfileResourceTarget -Base $UserDataRoot -ResourceName $ResourceName
@@ -1283,7 +1373,19 @@ foreach ($ResourceName in $DefaultResources.Keys) {{
         -Source $Source `
         -Target $Target `
         -Label "Default $ResourceName" `
-        -Directory ($ResourceName -eq 'snippets')
+        -Directory ($ResourceName -in @('snippets', 'xml'))
+    if ($ResourceName -eq 'xml') {{
+        $XmlCatalogTarget = Join-Path $Target 'catalog.xml'
+    }}
+}}
+if ($XmlCatalogTarget) {{
+    if (-not (Test-Path -LiteralPath $XmlCatalogTarget -PathType Leaf)) {{
+        throw "XML Catalog 文件不存在: $XmlCatalogTarget"
+    }}
+    Resolve-XmlCatalogSetting `
+        -SettingsPath $DefaultSettingsTarget `
+        -CatalogPath $XmlCatalogTarget `
+        -Label 'Default'
 }}
 
 if (($SharedSettingsProfiles.Count -gt 0) -or
@@ -1332,6 +1434,12 @@ if (($SharedSettingsProfiles.Count -gt 0) -or
         $Source = Join-Path $Root $ProfileSettings[$ProfileName]
         $Target = Join-Path $UserDataRoot "profiles\\$($ProfileInfo.location)\\settings.json"
         Copy-SettingsFile -Source $Source -Target $Target -Label $ProfileName
+        if ($XmlCatalogTarget) {{
+            Resolve-XmlCatalogSetting `
+                -SettingsPath $Target `
+                -CatalogPath $XmlCatalogTarget `
+                -Label $ProfileName
+        }}
     }}
 
     foreach ($ProfileName in $SharedProfileResources.Keys) {{
@@ -1359,7 +1467,7 @@ if (($SharedSettingsProfiles.Count -gt 0) -or
                 -Source $Source `
                 -Target $Target `
                 -Label "$ProfileName $ResourceName" `
-                -Directory ($ResourceName -eq 'snippets')
+                -Directory ($ResourceName -in @('snippets', 'xml'))
         }}
     }}
 
@@ -1429,8 +1537,11 @@ def build_bundle(config: Config, archive_only: bool = False,
             name: index
             for index, (name, _) in enumerate(config.extension_profiles, start=1)
         }
+        xml_catalog_enabled = any(kind == "xml" for kind, _ in config.resources)
         settings_target = root / "user-data" / "default" / "settings.json"
         _copy_or_create_empty_settings(config.settings, settings_target)
+        if xml_catalog_enabled:
+            _add_xml_catalog_setting(settings_target)
         profile_settings_entries: dict[str, dict[str, Any]] = {}
         for profile_setting in config.profile_settings:
             if profile_setting.use_default:
@@ -1439,6 +1550,8 @@ def build_bundle(config: Config, archive_only: bool = False,
             index = profile_indexes[profile_setting.name]
             profile_target = root / "user-data" / "profiles" / f"profile-{index}" / "settings.json"
             _copy_or_create_empty_settings(profile_setting.source, profile_target)
+            if xml_catalog_enabled:
+                _add_xml_catalog_setting(profile_target)
             profile_settings_entries[profile_setting.name] = {
                 "file": profile_target.relative_to(root).as_posix(),
                 "sha256": sha256_file(profile_target),
@@ -1449,6 +1562,7 @@ def build_bundle(config: Config, archive_only: bool = False,
             "snippets": "snippets",
             "tasks": "tasks.json",
             "mcp": "mcp.json",
+            "xml": "xml",
         }
         default_resource_entries: dict[str, dict[str, Any]] = {}
         for kind, source in config.resources:
@@ -1472,7 +1586,7 @@ def build_bundle(config: Config, archive_only: bool = False,
         manifest = {
             "schema_version": 4,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "install": {"mode": config.install_mode},
+            "install": {"mode": "replace" if config.replace_extensions else "merge"},
             "vscode": {
                 "version": config.version,
                 "package": config.package,

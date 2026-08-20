@@ -27,12 +27,14 @@ class CoreTests(unittest.TestCase):
         loaded = load_config(repository / "packager.jsonc")
 
         config_root = repository / "config"
+        self.assertFalse(loaded.replace_extensions)
         self.assertEqual(loaded.settings, (config_root / "settings.json").resolve())
         self.assertEqual(dict(loaded.resources), {
             "keybindings": (config_root / "keybindings.json").resolve(),
             "snippets": (config_root / "snippets").resolve(),
             "tasks": (config_root / "tasks.json").resolve(),
             "mcp": (config_root / "mcp.json").resolve(),
+            "xml": (config_root / "xml").resolve(),
         })
 
     def test_vscode_url(self):
@@ -155,7 +157,7 @@ class CoreTests(unittest.TestCase):
                 ProfileSettings("Python", python_settings.resolve()),
             ))
 
-    def test_config_supports_install_mode_and_profile_resources(self):
+    def test_config_supports_legacy_install_mode_and_profile_resources(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             keybindings = base / "keybindings.json"
@@ -186,7 +188,7 @@ class CoreTests(unittest.TestCase):
 
             loaded = load_config(config)
 
-            self.assertEqual(loaded.install_mode, "replace")
+            self.assertTrue(loaded.replace_extensions)
             self.assertEqual(loaded.resources, (
                 ("keybindings", keybindings.resolve()),
                 ("snippets", snippets.resolve()),
@@ -195,6 +197,52 @@ class CoreTests(unittest.TestCase):
                 ProfileResource("Python", "keybindings", None, True),
                 ProfileResource("Python", "tasks", tasks.resolve()),
             ))
+
+    def test_config_supports_default_xml_catalog_resource(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            xml = base / "xml"
+            xml.mkdir()
+            (xml / "catalog.xml").write_text("<catalog/>", encoding="utf-8")
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "resources": {"default": {"xml": str(xml)}},
+            }), encoding="utf-8")
+
+            loaded = load_config(config)
+
+            self.assertEqual(loaded.resources, (("xml", xml.resolve()),))
+
+    def test_config_rejects_xml_resource_without_catalog(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            xml = base / "xml"
+            xml.mkdir()
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "resources": {"default": {"xml": str(xml)}},
+            }), encoding="utf-8")
+
+            with self.assertRaisesRegex(PackagerError, "缺少 catalog.xml"):
+                load_config(config)
+
+    def test_config_rejects_profile_xml_resource(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            xml = base / "xml"
+            xml.mkdir()
+            (xml / "catalog.xml").write_text("<catalog/>", encoding="utf-8")
+            config = base / "config.json"
+            config.write_text(json.dumps({
+                "vscode": {"version": "1.95.3"},
+                "extensions": {"profiles": {"Java": []}},
+                "resources": {"profiles": {"Java": {"xml": str(xml)}}},
+            }), encoding="utf-8")
+
+            with self.assertRaisesRegex(PackagerError, "未知资源: xml"):
+                load_config(config)
 
     def test_config_rejects_unknown_install_mode(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -241,7 +289,10 @@ class CoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
             settings = base / "settings.json"
-            settings.write_text('{"editor.fontSize": 15}', encoding="utf-8")
+            settings.write_text(
+                '{\n  // XML Catalog 打包时会规范化 JSONC\n  "editor.fontSize": 15,\n}\n',
+                encoding="utf-8",
+            )
             python_settings = base / "python-settings.json"
             python_settings.write_text('{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8")
             keybindings = base / "keybindings.json"
@@ -251,6 +302,12 @@ class CoreTests(unittest.TestCase):
             (snippets / "global.code-snippets").write_text('{"sample":{"prefix":"s","body":"sample"}}', encoding="utf-8")
             python_tasks = base / "python-tasks.json"
             python_tasks.write_text('{"version":"2.0.0","tasks":[]}', encoding="utf-8")
+            xml = base / "xml"
+            xml.mkdir()
+            (xml / "catalog.xml").write_text("<catalog/>", encoding="utf-8")
+            xml_dtd = xml / "dtd" / "sample.dtd"
+            xml_dtd.parent.mkdir()
+            xml_dtd.write_text("<!ELEMENT sample EMPTY>", encoding="utf-8")
             config = Config(
                 "1.95.3",
                 "system",
@@ -266,10 +323,11 @@ class CoreTests(unittest.TestCase):
                     ProfileSettings("Backend Java", None, True),
                     ProfileSettings("Python", python_settings),
                 ),
-                "replace",
+                True,
                 (
                     ("keybindings", keybindings),
                     ("snippets", snippets),
+                    ("xml", xml),
                 ),
                 (
                     ProfileResource("Backend Java", "keybindings", None, True),
@@ -295,13 +353,30 @@ class CoreTests(unittest.TestCase):
                 self.assertIn(prefix + "user-data/profiles/profile-2/settings.json", names)
                 self.assertIn(prefix + "user-data/default/keybindings.json", names)
                 self.assertIn(prefix + "user-data/default/snippets/global.code-snippets", names)
+                self.assertIn(prefix + "user-data/default/xml/catalog.xml", names)
+                self.assertIn(prefix + "user-data/default/xml/dtd/sample.dtd", names)
                 self.assertIn(prefix + "user-data/profiles/profile-2/tasks.json", names)
+                default_settings = json.loads(
+                    archive.read(prefix + "user-data/default/settings.json")
+                )
+                python_profile_settings = json.loads(
+                    archive.read(prefix + "user-data/profiles/profile-2/settings.json")
+                )
+                self.assertEqual(
+                    default_settings["xml.catalogs"],
+                    ["__DEV_FORGE_XML_CATALOG__"],
+                )
+                self.assertEqual(
+                    python_profile_settings["xml.catalogs"],
+                    ["__DEV_FORGE_XML_CATALOG__"],
+                )
                 install_script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
-                self.assertIn("[string]$Mode = 'replace'", install_script)
+                self.assertIn("[switch]$ReplaceExtensions = $true", install_script)
                 self.assertIn("[switch]$ForceResources", install_script)
                 self.assertIn("[switch]$ForceVSCodeInstall", install_script)
-                self.assertIn("if ($Mode -eq 'replace')", install_script)
-                self.assertIn("merge 模式：保留本机现有扩展", install_script)
+                self.assertIn("if ($ReplaceExtensions)", install_script)
+                self.assertIn("默认保留本机现有扩展", install_script)
+                self.assertNotIn("$Mode", install_script)
                 self.assertIn("$ArchiveMode = $false", install_script)
                 self.assertNotIn("if (false)", install_script)
                 self.assertIn(
@@ -398,6 +473,13 @@ class CoreTests(unittest.TestCase):
                 self.assertIn("$SharedProfileResources = [ordered]@{", install_script)
                 self.assertIn("$ProfileResources = [ordered]@{", install_script)
                 self.assertIn("function Copy-ProfileResource", install_script)
+                self.assertIn("function Resolve-XmlCatalogSetting", install_script)
+                self.assertIn("$XmlCatalogSettingToken = '__DEV_FORGE_XML_CATALOG__'", install_script)
+                self.assertIn("'xml' = 'user-data\\default\\xml'", install_script)
+                self.assertIn("Join-Path $Target 'catalog.xml'", install_script)
+                self.assertIn("$CatalogPath.Replace('\\', '\\\\')", install_script)
+                self.assertIn("$SettingsContent.Contains($CatalogJsonPath)", install_script)
+                self.assertIn("尚未注册 XML Catalog", install_script)
                 self.assertIn("-ResourceName $ResourceName", install_script)
                 self.assertIn("useDefaultFlags", install_script)
                 self.assertIn("New-Object System.Text.UTF8Encoding($false)", install_script)
@@ -427,6 +509,16 @@ class CoreTests(unittest.TestCase):
                     manifest["resources"]["default"]["snippets"]["files"][0]["file"],
                     "user-data/default/snippets/global.code-snippets",
                 )
+                self.assertEqual(
+                    [
+                        item["file"]
+                        for item in manifest["resources"]["default"]["xml"]["files"]
+                    ],
+                    [
+                        "user-data/default/xml/catalog.xml",
+                        "user-data/default/xml/dtd/sample.dtd",
+                    ],
+                )
 
     def test_archive_bundle_generates_valid_powershell_boolean(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -444,7 +536,7 @@ class CoreTests(unittest.TestCase):
                 prefix = "dev-forge-1.95.3-win32-arm64/"
                 script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
                 self.assertIn("$ArchiveMode = $true", script)
-                self.assertIn("[string]$Mode = 'merge'", script)
+                self.assertIn("[switch]$ReplaceExtensions = $false", script)
                 self.assertIn("Expand-Archive", script)
                 self.assertNotIn("if (true)", script)
                 self.assertEqual(
