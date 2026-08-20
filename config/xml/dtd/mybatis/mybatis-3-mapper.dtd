@@ -1,23 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<!--
 
-       Copyright 2009-2022 the original author or authors.
-
-       Licensed under the Apache License, Version 2.0 (the "License");
-       you may not use this file except in compliance with the License.
-       You may obtain a copy of the License at
-
-          https://www.apache.org/licenses/LICENSE-2.0
-
-       Unless required by applicable law or agreed to in writing, software
-       distributed under the License is distributed on an "AS IS" BASIS,
-       WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-       See the License for the specific language governing permissions and
-       limitations under the License.
-
--->
 <!ELEMENT mapper (cache-ref | cache | resultMap* | parameterMap* | sql* | insert* | update* | delete* | select* )+>
 <!ATTLIST mapper
+xmlns:fo CDATA #IMPLIED
 namespace CDATA #IMPLIED
 >
 
@@ -33,7 +18,6 @@ eviction CDATA #IMPLIED
 flushInterval CDATA #IMPLIED
 size CDATA #IMPLIED
 readOnly CDATA #IMPLIED
-blocking CDATA #IMPLIED
 >
 
 <!ELEMENT parameterMap (parameter+)?>
@@ -58,10 +42,9 @@ typeHandler CDATA #IMPLIED
 id CDATA #REQUIRED
 type CDATA #REQUIRED
 extends CDATA #IMPLIED
-autoMapping (true|false) #IMPLIED
 >
 
-<!ELEMENT constructor ((idArg|arg)*)>
+<!ELEMENT constructor (idArg*,arg*)>
 
 <!ELEMENT id EMPTY>
 <!ATTLIST id
@@ -87,10 +70,6 @@ javaType CDATA #IMPLIED
 column CDATA #IMPLIED
 jdbcType CDATA #IMPLIED
 typeHandler CDATA #IMPLIED
-select CDATA #IMPLIED
-resultMap CDATA #IMPLIED
-name CDATA #IMPLIED
-columnPrefix CDATA #IMPLIED
 >
 
 <!ELEMENT arg EMPTY>
@@ -99,10 +78,6 @@ javaType CDATA #IMPLIED
 column CDATA #IMPLIED
 jdbcType CDATA #IMPLIED
 typeHandler CDATA #IMPLIED
-select CDATA #IMPLIED
-resultMap CDATA #IMPLIED
-name CDATA #IMPLIED
-columnPrefix CDATA #IMPLIED
 >
 
 <!ELEMENT collection (constructor?,id*,result*,association*,collection*, discriminator?)>
@@ -115,12 +90,6 @@ jdbcType CDATA #IMPLIED
 select CDATA #IMPLIED
 resultMap CDATA #IMPLIED
 typeHandler CDATA #IMPLIED
-notNullColumn CDATA #IMPLIED
-columnPrefix CDATA #IMPLIED
-resultSet CDATA #IMPLIED
-foreignColumn CDATA #IMPLIED
-autoMapping (true|false) #IMPLIED
-fetchType (lazy|eager) #IMPLIED
 >
 
 <!ELEMENT association (constructor?,id*,result*,association*,collection*, discriminator?)>
@@ -132,12 +101,6 @@ jdbcType CDATA #IMPLIED
 select CDATA #IMPLIED
 resultMap CDATA #IMPLIED
 typeHandler CDATA #IMPLIED
-notNullColumn CDATA #IMPLIED
-columnPrefix CDATA #IMPLIED
-resultSet CDATA #IMPLIED
-foreignColumn CDATA #IMPLIED
-autoMapping (true|false) #IMPLIED
-fetchType (lazy|eager) #IMPLIED
 >
 
 <!ELEMENT discriminator (case+)>
@@ -167,27 +130,22 @@ alias CDATA #REQUIRED
 type CDATA #REQUIRED
 >
 
-<!ELEMENT select (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT select (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST select
 id CDATA #REQUIRED
 parameterMap CDATA #IMPLIED
 parameterType CDATA #IMPLIED
 resultMap CDATA #IMPLIED
 resultType CDATA #IMPLIED
-resultSetType (FORWARD_ONLY | SCROLL_INSENSITIVE | SCROLL_SENSITIVE | DEFAULT) #IMPLIED
+resultSetType (FORWARD_ONLY | SCROLL_INSENSITIVE | SCROLL_SENSITIVE) #IMPLIED
 statementType (STATEMENT|PREPARED|CALLABLE) #IMPLIED
 fetchSize CDATA #IMPLIED
 timeout CDATA #IMPLIED
 flushCache (true|false) #IMPLIED
 useCache (true|false) #IMPLIED
-databaseId CDATA #IMPLIED
-lang CDATA #IMPLIED
-resultOrdered (true|false) #IMPLIED
-resultSets CDATA #IMPLIED 
-affectData (true|false) #IMPLIED
 >
 
-<!ELEMENT insert (#PCDATA | selectKey | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT insert (#PCDATA | selectKey | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST insert
 id CDATA #REQUIRED
 parameterMap CDATA #IMPLIED
@@ -198,21 +156,17 @@ statementType (STATEMENT|PREPARED|CALLABLE) #IMPLIED
 keyProperty CDATA #IMPLIED
 useGeneratedKeys (true|false) #IMPLIED
 keyColumn CDATA #IMPLIED
-databaseId CDATA #IMPLIED
-lang CDATA #IMPLIED
 >
 
-<!ELEMENT selectKey (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT selectKey (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST selectKey
 resultType CDATA #IMPLIED
 statementType (STATEMENT|PREPARED|CALLABLE) #IMPLIED
 keyProperty CDATA #IMPLIED
-keyColumn CDATA #IMPLIED
 order (BEFORE|AFTER) #IMPLIED
-databaseId CDATA #IMPLIED
 >
 
-<!ELEMENT update (#PCDATA | selectKey | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT update (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST update
 id CDATA #REQUIRED
 parameterMap CDATA #IMPLIED
@@ -220,14 +174,9 @@ parameterType CDATA #IMPLIED
 timeout CDATA #IMPLIED
 flushCache (true|false) #IMPLIED
 statementType (STATEMENT|PREPARED|CALLABLE) #IMPLIED
-keyProperty CDATA #IMPLIED
-useGeneratedKeys (true|false) #IMPLIED
-keyColumn CDATA #IMPLIED
-databaseId CDATA #IMPLIED
-lang CDATA #IMPLIED
 >
 
-<!ELEMENT delete (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT delete (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST delete
 id CDATA #REQUIRED
 parameterMap CDATA #IMPLIED
@@ -235,44 +184,33 @@ parameterType CDATA #IMPLIED
 timeout CDATA #IMPLIED
 flushCache (true|false) #IMPLIED
 statementType (STATEMENT|PREPARED|CALLABLE) #IMPLIED
-databaseId CDATA #IMPLIED
-lang CDATA #IMPLIED
 >
 
 <!-- Dynamic -->
 
-<!ELEMENT include (property+)?>
+<!ELEMENT include EMPTY>
 <!ATTLIST include
 refid CDATA #REQUIRED
 >
 
-<!ELEMENT bind EMPTY>
-<!ATTLIST bind
- name CDATA #REQUIRED
- value CDATA #REQUIRED
->
-
-<!ELEMENT sql (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT sql (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST sql
 id CDATA #REQUIRED
-lang CDATA #IMPLIED
-databaseId CDATA #IMPLIED
 >
 
-<!ELEMENT trim (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT trim (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST trim
 prefix CDATA #IMPLIED
 prefixOverrides CDATA #IMPLIED
 suffix CDATA #IMPLIED
 suffixOverrides CDATA #IMPLIED
 >
-<!ELEMENT where (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
-<!ELEMENT set (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT where (#PCDATA | include | trim | where | set | foreach | choose | if)*>
+<!ELEMENT set (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 
-<!ELEMENT foreach (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT foreach (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST foreach
 collection CDATA #REQUIRED
-nullable (true|false) #IMPLIED
 item CDATA #IMPLIED
 index CDATA #IMPLIED
 open CDATA #IMPLIED
@@ -281,15 +219,14 @@ separator CDATA #IMPLIED
 >
 
 <!ELEMENT choose (when* , otherwise?)>
-<!ELEMENT when (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT when (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST when
 test CDATA #REQUIRED
 >
-<!ELEMENT otherwise (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT otherwise (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 
-<!ELEMENT if (#PCDATA | include | trim | where | set | foreach | choose | if | bind)*>
+<!ELEMENT if (#PCDATA | include | trim | where | set | foreach | choose | if)*>
 <!ATTLIST if
 test CDATA #REQUIRED
 >
-
 

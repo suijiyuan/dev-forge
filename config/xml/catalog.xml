@@ -1,22 +1,93 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <catalog xmlns="urn:oasis:names:tc:entity:xmlns:xml:catalog">
-    <!-- Maven：旧地址 -->
+    <!-- Apache Maven POM 4.0.0：兼容旧地址、HTTP 和 HTTPS。 -->
     <system
         systemId="http://maven.apache.org/maven-v4_0_0.xsd"
-        uri="xsd/maven-4.0.0.xsd"/>
-
-    <!-- Maven：HTTP -->
+        uri="xsd/apache-maven/maven-4.0.0.xsd"/>
     <system
         systemId="http://maven.apache.org/xsd/maven-4.0.0.xsd"
-        uri="xsd/maven-4.0.0.xsd"/>
-
-    <!-- Maven：HTTPS -->
+        uri="xsd/apache-maven/maven-4.0.0.xsd"/>
     <system
         systemId="https://maven.apache.org/xsd/maven-4.0.0.xsd"
-        uri="xsd/maven-4.0.0.xsd"/>
+        uri="xsd/apache-maven/maven-4.0.0.xsd"/>
 
-    <!-- MyBatis Mapper -->
+    <!-- MyBatis 3.0.5：配置文件和 Mapper，兼容 HTTP 与 HTTPS。 -->
+    <system
+        systemId="http://mybatis.org/dtd/mybatis-3-config.dtd"
+        uri="dtd/mybatis/mybatis-3-config.dtd"/>
+    <system
+        systemId="https://mybatis.org/dtd/mybatis-3-config.dtd"
+        uri="dtd/mybatis/mybatis-3-config.dtd"/>
     <system
         systemId="http://mybatis.org/dtd/mybatis-3-mapper.dtd"
-        uri="dtd/mybatis-3-mapper.dtd"/>
+        uri="dtd/mybatis/mybatis-3-mapper.dtd"/>
+    <system
+        systemId="https://mybatis.org/dtd/mybatis-3-mapper.dtd"
+        uri="dtd/mybatis/mybatis-3-mapper.dtd"/>
+
+    <!-- Java EE Web 2.5 / 3.0：主 Schema 及其 Java EE、JSP、W3C XML 传递依赖。 -->
+    <system
+        systemId="http://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
+        uri="xsd/java-ee/web-app_2_5.xsd"/>
+    <system
+        systemId="https://java.sun.com/xml/ns/javaee/web-app_2_5.xsd"
+        uri="xsd/java-ee/web-app_2_5.xsd"/>
+    <system
+        systemId="http://java.sun.com/xml/ns/javaee/web-app_3_0.xsd"
+        uri="xsd/java-ee/web-app_3_0.xsd"/>
+    <system
+        systemId="https://java.sun.com/xml/ns/javaee/web-app_3_0.xsd"
+        uri="xsd/java-ee/web-app_3_0.xsd"/>
+    <system
+        systemId="http://www.w3.org/2001/xml.xsd"
+        uri="xsd/java-ee/xml.xsd"/>
+    <system
+        systemId="http://www.w3.org/2001/03/xml.xsd"
+        uri="xsd/java-ee/xml.xsd"/>
+    <system
+        systemId="https://www.w3.org/2001/xml.xsd"
+        uri="xsd/java-ee/xml.xsd"/>
+    <system
+        systemId="https://www.w3.org/2001/03/xml.xsd"
+        uri="xsd/java-ee/xml.xsd"/>
+
+    <!-- Spring Framework 3.0.6：各命名空间均支持 3.0 和无版本别名；tool/beans 也是传递依赖。 -->
+    <system systemId="http://www.springframework.org/schema/aop/spring-aop-3.0.xsd" uri="xsd/spring-framework/spring-aop-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/aop/spring-aop.xsd" uri="xsd/spring-framework/spring-aop-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/aop/spring-aop-3.0.xsd" uri="xsd/spring-framework/spring-aop-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/aop/spring-aop.xsd" uri="xsd/spring-framework/spring-aop-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/beans/spring-beans-3.0.xsd" uri="xsd/spring-framework/spring-beans-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/beans/spring-beans.xsd" uri="xsd/spring-framework/spring-beans-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/beans/spring-beans-3.0.xsd" uri="xsd/spring-framework/spring-beans-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/beans/spring-beans.xsd" uri="xsd/spring-framework/spring-beans-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/context/spring-context-3.0.xsd" uri="xsd/spring-framework/spring-context-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/context/spring-context.xsd" uri="xsd/spring-framework/spring-context-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/context/spring-context-3.0.xsd" uri="xsd/spring-framework/spring-context-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/context/spring-context.xsd" uri="xsd/spring-framework/spring-context-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/mvc/spring-mvc-3.0.xsd" uri="xsd/spring-framework/spring-mvc-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/mvc/spring-mvc.xsd" uri="xsd/spring-framework/spring-mvc-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/mvc/spring-mvc-3.0.xsd" uri="xsd/spring-framework/spring-mvc-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/mvc/spring-mvc.xsd" uri="xsd/spring-framework/spring-mvc-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/tool/spring-tool-3.0.xsd" uri="xsd/spring-framework/spring-tool-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/tool/spring-tool.xsd" uri="xsd/spring-framework/spring-tool-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/tool/spring-tool-3.0.xsd" uri="xsd/spring-framework/spring-tool-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/tool/spring-tool.xsd" uri="xsd/spring-framework/spring-tool-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/tx/spring-tx-3.0.xsd" uri="xsd/spring-framework/spring-tx-3.0.xsd"/>
+    <system systemId="http://www.springframework.org/schema/tx/spring-tx.xsd" uri="xsd/spring-framework/spring-tx-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/tx/spring-tx-3.0.xsd" uri="xsd/spring-framework/spring-tx-3.0.xsd"/>
+    <system systemId="https://www.springframework.org/schema/tx/spring-tx.xsd" uri="xsd/spring-framework/spring-tx-3.0.xsd"/>
+
+    <!-- Apache CXF 2.6.1：JAX-WS 主 Schema 及其 cxf-beans 传递依赖。 -->
+    <system
+        systemId="http://cxf.apache.org/schemas/jaxws.xsd"
+        uri="xsd/apache-cxf/jaxws.xsd"/>
+    <system
+        systemId="https://cxf.apache.org/schemas/jaxws.xsd"
+        uri="xsd/apache-cxf/jaxws.xsd"/>
+    <system
+        systemId="http://cxf.apache.org/schemas/configuration/cxf-beans.xsd"
+        uri="xsd/apache-cxf/cxf-beans.xsd"/>
+    <system
+        systemId="https://cxf.apache.org/schemas/configuration/cxf-beans.xsd"
+        uri="xsd/apache-cxf/cxf-beans.xsd"/>
 </catalog>
