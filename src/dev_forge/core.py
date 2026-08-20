@@ -647,7 +647,7 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
 1. 在 PowerShell 中运行 .\\install.ps1。
 2. 默认安装模式是 {config.install_mode}；可使用 -Mode merge 或 -Mode replace 临时覆盖。
 3. merge 保留本机已有扩展；replace 会删除当前用户原有的扩展目录和各 Profile 的扩展清单。
-4. 脚本先检查离线文件并确认 VS Code 已关闭，再按选择的模式处理扩展。
+4. 脚本先检查离线文件、现有 VS Code 安装方式并确认 VS Code 已关闭，再按选择的模式处理扩展。
 5. 脚本按打包时的 packager.jsonc 配置创建 Profile：
    - 通用扩展安装到 Default 和所有已配置 Profile；
    - Profile 专属扩展仅安装到对应 Profile。
@@ -787,6 +787,103 @@ foreach ($ProfileName in $ProfileResources.Keys) {{
     }}
 }}
 
+function Get-CodeInstallations {{
+    $Candidates = @()
+    if (Test-Path -LiteralPath $ArchiveTarget -PathType Container) {{
+        $ArchiveCodePath = Get-ChildItem -LiteralPath $ArchiveTarget -Filter 'code.cmd' -File -Recurse |
+            Where-Object {{ $_.FullName -like '*\\bin\\code.cmd' }} |
+            Select-Object -First 1 -ExpandProperty FullName
+        if ($ArchiveCodePath) {{
+            $Candidates += [PSCustomObject]@{{ Kind = 'archive'; Path = $ArchiveCodePath }}
+        }}
+    }}
+    if ($env:LOCALAPPDATA) {{
+        $Candidates += [PSCustomObject]@{{
+            Kind = 'user'
+            Path = Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd'
+        }}
+    }}
+    if ($env:ProgramFiles) {{
+        $Candidates += [PSCustomObject]@{{
+            Kind = 'system'
+            Path = Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd'
+        }}
+    }}
+    $RegistrySources = @(
+        [PSCustomObject]@{{
+            Kind = 'user'
+            Path = 'Registry::HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+        }},
+        [PSCustomObject]@{{
+            Kind = 'system'
+            Path = 'Registry::HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+        }},
+        [PSCustomObject]@{{
+            Kind = 'system'
+            Path = 'Registry::HKEY_LOCAL_MACHINE\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'
+        }}
+    )
+    foreach ($RegistrySource in $RegistrySources) {{
+        foreach ($RegistryEntry in @(Get-ItemProperty -Path $RegistrySource.Path -ErrorAction SilentlyContinue)) {{
+            $DisplayNameProperty = $RegistryEntry.PSObject.Properties['DisplayName']
+            $InstallLocationProperty = $RegistryEntry.PSObject.Properties['InstallLocation']
+            if (-not $DisplayNameProperty -or -not $InstallLocationProperty) {{ continue }}
+            $DisplayName = [string]$DisplayNameProperty.Value
+            if ($DisplayName -notlike 'Microsoft Visual Studio Code*' -or
+                $DisplayName -like '*Insiders*') {{ continue }}
+            $InstallLocation = [string]$InstallLocationProperty.Value
+            if ([string]::IsNullOrWhiteSpace($InstallLocation)) {{ continue }}
+            $Candidates += [PSCustomObject]@{{
+                Kind = $RegistrySource.Kind
+                Path = Join-Path $InstallLocation 'bin\\code.cmd'
+            }}
+        }}
+    }}
+
+    $SeenPaths = @{{}}
+    foreach ($Candidate in $Candidates) {{
+        if (-not (Test-Path -LiteralPath $Candidate.Path -PathType Leaf)) {{ continue }}
+        if ($SeenPaths.ContainsKey($Candidate.Path)) {{ continue }}
+        $SeenPaths[$Candidate.Path] = $true
+        $Candidate
+    }}
+}}
+
+function Find-CodeCommand {{
+    return Get-CodeInstallations |
+        Where-Object {{ $_.Kind -eq $PackageKind }} |
+        Select-Object -First 1 -ExpandProperty Path
+}}
+
+function Get-CodeInstallationInfo {{
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {{
+        $ErrorActionPreference = 'Continue'
+        $VersionLines = @(& $Path '--version' 2>$null)
+        $VersionExitCode = $LASTEXITCODE
+    }} finally {{
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }}
+    if ($VersionExitCode -ne 0 -or $VersionLines.Count -eq 0) {{ return $null }}
+    $DetectedArch = if ($VersionLines.Count -ge 3) {{ ([string]$VersionLines[2]).Trim() }} else {{ $null }}
+    return @{{
+        Version = ([string]$VersionLines[0]).Trim()
+        Arch = $DetectedArch
+    }}
+}}
+
+$ExistingCodeInstallations = @(Get-CodeInstallations)
+$DetectedPackageKinds = @(
+    $ExistingCodeInstallations |
+        Select-Object -ExpandProperty Kind -Unique
+)
+if ($DetectedPackageKinds.Count -gt 0 -and $DetectedPackageKinds -notcontains $PackageKind) {{
+    $DetectedPackageLabel = $DetectedPackageKinds -join ', '
+    throw "检测到已安装的 VS Code package 为 $DetectedPackageLabel，与离线包 package 参数 $PackageKind 不一致。请使用匹配的离线包，或先卸载/移除现有 VS Code 后重试。"
+}}
+
 $RunningCodeProcesses = @(Get-Process -Name 'Code' -ErrorAction SilentlyContinue)
 if ($RunningCodeProcesses.Count -gt 0) {{
     throw '检测到 VS Code 正在运行。请关闭所有 VS Code 窗口，并从独立 PowerShell 重新运行安装脚本。'
@@ -829,52 +926,6 @@ if ($Mode -eq 'replace') {{
     }}
 }} else {{
     Write-Host 'merge 模式：保留本机现有扩展，只安装或更新离线包清单中的扩展。'
-}}
-
-function Find-CodeCommand {{
-    $Candidates = @()
-    if ($ArchiveMode -and (Test-Path -LiteralPath $ArchiveTarget -PathType Container)) {{
-        $ArchiveCodePath = Get-ChildItem -LiteralPath $ArchiveTarget -Filter 'code.cmd' -File -Recurse |
-            Where-Object {{ $_.FullName -like '*\\bin\\code.cmd' }} |
-            Select-Object -First 1 -ExpandProperty FullName
-        if ($ArchiveCodePath) {{ $Candidates += $ArchiveCodePath }}
-    }}
-    if ($PackageKind -eq 'user' -and $env:LOCALAPPDATA) {{
-        $Candidates += Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd'
-    }}
-    if ($PackageKind -eq 'system' -and $env:ProgramFiles) {{
-        $Candidates += Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd'
-    }}
-    if ($env:LOCALAPPDATA) {{
-        $Candidates += Join-Path $env:LOCALAPPDATA 'Programs\\Microsoft VS Code\\bin\\code.cmd'
-    }}
-    if ($env:ProgramFiles) {{
-        $Candidates += Join-Path $env:ProgramFiles 'Microsoft VS Code\\bin\\code.cmd'
-    }}
-    $CodeCommand = Get-Command 'code.cmd' -ErrorAction SilentlyContinue
-    if ($CodeCommand) {{ $Candidates += $CodeCommand.Source }}
-    return $Candidates |
-        Where-Object {{ $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) }} |
-        Select-Object -Unique -First 1
-}}
-
-function Get-CodeInstallationInfo {{
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $PreviousErrorActionPreference = $ErrorActionPreference
-    try {{
-        $ErrorActionPreference = 'Continue'
-        $VersionLines = @(& $Path '--version' 2>$null)
-        $VersionExitCode = $LASTEXITCODE
-    }} finally {{
-        $ErrorActionPreference = $PreviousErrorActionPreference
-    }}
-    if ($VersionExitCode -ne 0 -or $VersionLines.Count -eq 0) {{ return $null }}
-    $DetectedArch = if ($VersionLines.Count -ge 3) {{ ([string]$VersionLines[2]).Trim() }} else {{ $null }}
-    return @{{
-        Version = ([string]$VersionLines[0]).Trim()
-        Arch = $DetectedArch
-    }}
 }}
 
 if ($ArchiveMode) {{
