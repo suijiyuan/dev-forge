@@ -90,6 +90,7 @@ function Invoke-ExternalProcess {
             -ArgumentList $ArgumentLine `
             -RedirectStandardOutput $StdOutPath `
             -RedirectStandardError $StdErrPath `
+            -NoNewWindow `
             -PassThru
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
             Stop-ExternalProcessTree -ProcessId $Process.Id
