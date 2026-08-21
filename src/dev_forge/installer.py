@@ -149,7 +149,9 @@ def _powershell_nested_string_map(
 
 def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -> None:
     (root / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
     )
     extension_behavior = (
         "旧版 install.mode=replace 使 -ReplaceExtensions 默认启用；可使用 "
@@ -176,7 +178,7 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
 
 详细版本和 SHA-256 校验值见 manifest.json；校验失败时不会清理现有扩展。
 """
-    (root / "README.txt").write_text(readme, encoding="utf-8")
+    (root / "README.txt").write_text(readme, encoding="utf-8", newline="\n")
     installer = manifest["vscode"]["file"].replace("/", "\\")
     archive_literal = "$true" if config.package == "archive" else "$false"
     files_by_id = {
@@ -276,4 +278,6 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
         ps1 = ps1.replace(placeholder, value)
     if "@@" in ps1:
         raise ValueError("PowerShell template contains unresolved placeholders")
-    (root / "install.ps1").write_text(ps1, encoding="utf-8-sig")
+    (root / "install.ps1").write_text(
+        ps1, encoding="utf-8-sig", newline="\n"
+    )

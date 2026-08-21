@@ -301,8 +301,7 @@ class CoreTests(unittest.TestCase):
     def test_config_supports_comments_without_breaking_urls(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
-            settings = base / "https://settings.json"
-            settings.parent.mkdir()
+            settings = base / "settings.json"
             settings.write_text("{}", encoding="utf-8")
             config = base / "config.json"
             config.write_text(
@@ -314,7 +313,8 @@ class CoreTests(unittest.TestCase):
                     "arch": "x64"
                 },
                 "extensions": [],
-                "settings": "https://settings.json",
+                "settings": "settings.json",
+                "url_example": "https://example.com/settings.json",
                 "output_dir": "dist"
             }""",
                 encoding="utf-8",

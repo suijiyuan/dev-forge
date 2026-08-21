@@ -44,7 +44,7 @@ def vscode_download(version: str, package: str, arch: str) -> tuple[str, str]:
 def _copy_or_create_empty_settings(source: Path | None, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if source is None:
-        target.write_text("{}\n", encoding="utf-8")
+        target.write_text("{}\n", encoding="utf-8", newline="\n")
     else:
         shutil.copy2(source, target)
 
@@ -101,6 +101,7 @@ def _add_xml_catalog_setting(target: Path) -> None:
     target.write_text(
         json.dumps(settings, ensure_ascii=False, indent=4) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
