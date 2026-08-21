@@ -65,7 +65,7 @@ dev-forge-1.95.3-win32-x64/
 仓库中的 `.github/workflows/release.yml` 会在推送 `v*` 标签时自动完成以下工作：
 
 1. 检出标签对应的代码；
-2. 使用 Python 3.11.15 安装 Dev Forge 并运行测试；
+2. 使用 Python 3.13 安装 Dev Forge 并运行测试；
 3. 执行 `dev-forge --config packager.jsonc --archive-only --locked`，严格使用已提交的扩展锁文件；
 4. 为 ZIP 生成 `SHA256SUMS.txt`；
 5. 创建与标签同名的 GitHub Release，并上传 ZIP 和校验文件。
