@@ -1,10 +1,15 @@
+import contextlib
+import io
 import json
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+from urllib.error import URLError
 
+from dev_forge import bundle, core, marketplace
+from dev_forge.cli import parser
 from dev_forge.core import (
     Config,
     ExtensionRelease,
@@ -15,12 +20,168 @@ from dev_forge.core import (
     find_resource,
     find_settings,
     load_config,
+    load_extension_lock,
     query_extension,
+    validate_vsix,
     vscode_download,
+    write_extension_lock,
 )
 
 
 class CoreTests(unittest.TestCase):
+    def test_marketplace_query_retries(self):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"{}"
+        with (
+            patch.object(
+                marketplace,
+                "urlopen",
+                side_effect=[URLError("temporary"), response],
+            ) as mocked_urlopen,
+            patch.object(marketplace.time, "sleep") as mocked_sleep,
+        ):
+            self.assertEqual(core._request_json("https://example.test", {}), {})
+        self.assertEqual(mocked_urlopen.call_count, 2)
+        mocked_sleep.assert_called_once_with(1)
+
+    def test_extension_lock_round_trip_and_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "packager.lock.json"
+            releases = [
+                ExtensionRelease(
+                    "sample.extension",
+                    "2.3.0",
+                    "^1.90.0",
+                    "win32-x64",
+                    "https://example.test/sample.vsix",
+                    "a" * 64,
+                )
+            ]
+            write_extension_lock(path, "1.95.3", "x64", releases)
+            loaded = load_extension_lock(path, "1.95.3", "x64", ["sample.extension"])
+            self.assertEqual(loaded["sample.extension"], releases[0])
+            with self.assertRaisesRegex(PackagerError, "目标"):
+                load_extension_lock(path, "1.96.0", "x64", ["sample.extension"])
+            with self.assertRaisesRegex(PackagerError, "缺少"):
+                load_extension_lock(
+                    path,
+                    "1.95.3",
+                    "x64",
+                    ["sample.extension", "missing.extension"],
+                )
+
+    def test_lock_cli_modes_are_mutually_exclusive(self):
+        for arguments in (
+            ["--update-lock", "--locked"],
+            ["--update-lock", "--no-lock"],
+            ["--locked", "--no-lock"],
+        ):
+            with (
+                self.subTest(arguments=arguments),
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                parser().parse_args(arguments)
+
+    def test_validate_vsix_checks_identity_and_version(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "sample.vsix"
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(
+                    "extension/package.json",
+                    json.dumps(
+                        {
+                            "publisher": "sample",
+                            "name": "extension",
+                            "version": "2.3.0",
+                        }
+                    ),
+                )
+            release = ExtensionRelease(
+                "sample.extension",
+                "2.3.0",
+                "^1.90.0",
+                None,
+                "https://example.test/sample.vsix",
+            )
+            validate_vsix(path, release)
+            with self.assertRaisesRegex(PackagerError, "版本不一致"):
+                validate_vsix(
+                    path,
+                    ExtensionRelease(
+                        "sample.extension",
+                        "2.4.0",
+                        "^1.90.0",
+                        None,
+                        release.download_url,
+                    ),
+                )
+
+    def test_zip_failure_removes_committed_output_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output_dir = Path(temp) / "out"
+            config = Config("1.95.3", "user", "x64", (), None, output_dir)
+
+            def fake_download(_url, destination):
+                destination.write_bytes(b"x")
+                return (
+                    "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+                )
+
+            with (
+                patch.object(
+                    bundle.zipfile, "ZipFile", side_effect=OSError("zip failed")
+                ),
+                self.assertRaisesRegex(OSError, "zip failed"),
+            ):
+                build_bundle(config, downloader=fake_download, progress=lambda _: None)
+            self.assertFalse((output_dir / "dev-forge-1.95.3-win32-x64").exists())
+            self.assertFalse(
+                (output_dir / "dev-forge-1.95.3-win32-x64.zip.part").exists()
+            )
+
+    def test_locked_build_rejects_download_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            config = Config(
+                "1.95.3",
+                "user",
+                "x64",
+                ("sample.extension",),
+                None,
+                base / "out",
+            )
+            lock_file = base / "packager.lock.json"
+            write_extension_lock(
+                lock_file,
+                config.version,
+                config.arch,
+                [
+                    ExtensionRelease(
+                        "sample.extension",
+                        "2.3.0",
+                        "^1.90.0",
+                        None,
+                        "https://example.test/sample.vsix",
+                        "a" * 64,
+                    )
+                ],
+            )
+
+            def fake_download(_url, destination):
+                destination.write_bytes(b"different")
+                return "b" * 64
+
+            with self.assertRaisesRegex(PackagerError, "SHA-256 与锁文件不一致"):
+                build_bundle(
+                    config,
+                    downloader=fake_download,
+                    progress=lambda _: None,
+                    lock_file=lock_file,
+                    locked=True,
+                )
+
     def test_checked_in_packager_uses_repository_vscode_config(self):
         repository = Path(__file__).resolve().parents[2]
 
@@ -29,17 +190,22 @@ class CoreTests(unittest.TestCase):
         config_root = repository / "config"
         self.assertFalse(loaded.replace_extensions)
         self.assertEqual(loaded.settings, (config_root / "settings.json").resolve())
-        self.assertEqual(dict(loaded.resources), {
-            "keybindings": (config_root / "keybindings.json").resolve(),
-            "snippets": (config_root / "snippets").resolve(),
-            "tasks": (config_root / "tasks.json").resolve(),
-            "mcp": (config_root / "mcp.json").resolve(),
-            "xml": (config_root / "xml").resolve(),
-        })
+        self.assertEqual(
+            dict(loaded.resources),
+            {
+                "keybindings": (config_root / "keybindings.json").resolve(),
+                "snippets": (config_root / "snippets").resolve(),
+                "tasks": (config_root / "tasks.json").resolve(),
+                "mcp": (config_root / "mcp.json").resolve(),
+                "xml": (config_root / "xml").resolve(),
+            },
+        )
 
     def test_vscode_url(self):
         url, filename = vscode_download("1.95.3", "user", "x64")
-        self.assertEqual(url, "https://update.code.visualstudio.com/1.95.3/win32-x64-user/stable")
+        self.assertEqual(
+            url, "https://update.code.visualstudio.com/1.95.3/win32-x64-user/stable"
+        )
         self.assertEqual(filename, "VSCodeUserSetup-x64-1.95.3.exe")
 
     def test_finds_settings_for_named_local_profile(self):
@@ -47,11 +213,16 @@ class CoreTests(unittest.TestCase):
             user_root = Path(temp)
             storage = user_root / "globalStorage" / "storage.json"
             storage.parent.mkdir()
-            storage.write_text(json.dumps({
-                "userDataProfiles": [
-                    {"name": "Java", "location": "profile-id"},
-                ],
-            }), encoding="utf-8")
+            storage.write_text(
+                json.dumps(
+                    {
+                        "userDataProfiles": [
+                            {"name": "Java", "location": "profile-id"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
             settings = user_root / "profiles" / "profile-id" / "settings.json"
             settings.parent.mkdir(parents=True)
             settings.write_text("{}", encoding="utf-8")
@@ -59,7 +230,7 @@ class CoreTests(unittest.TestCase):
             snippets.mkdir()
             (snippets / "java.json").write_text("{}", encoding="utf-8")
 
-            with patch("dev_forge.core.user_data_root", return_value=user_root):
+            with patch("dev_forge.config.user_data_root", return_value=user_root):
                 self.assertEqual(find_settings("Java"), settings.resolve())
                 self.assertEqual(find_resource("snippets", "Java"), snippets.resolve())
                 self.assertIsNone(find_settings("Python"))
@@ -69,15 +240,36 @@ class CoreTests(unittest.TestCase):
             def release(version, engine, prerelease=False, target=None):
                 props = [{"key": "Microsoft.VisualStudio.Code.Engine", "value": engine}]
                 if prerelease:
-                    props.append({"key": "Microsoft.VisualStudio.Code.PreRelease", "value": "true"})
-                return {"version": version, "properties": props, "targetPlatform": target, "files": []}
-            return {"results": [{"extensions": [{"versions": [
-                release("3.0.0", "^1.99.0"),
-                release("2.5.0", "^1.90.0", True),
-                release("2.4.0", "^1.90.0", target="linux-x64"),
-                release("2.3.0", "^1.90.0", target="win32-x64"),
-                release("2.2.0", "^1.80.0"),
-            ]}]}]}
+                    props.append(
+                        {
+                            "key": "Microsoft.VisualStudio.Code.PreRelease",
+                            "value": "true",
+                        }
+                    )
+                return {
+                    "version": version,
+                    "properties": props,
+                    "targetPlatform": target,
+                    "files": [],
+                }
+
+            return {
+                "results": [
+                    {
+                        "extensions": [
+                            {
+                                "versions": [
+                                    release("3.0.0", "^1.99.0"),
+                                    release("2.5.0", "^1.90.0", True),
+                                    release("2.4.0", "^1.90.0", target="linux-x64"),
+                                    release("2.3.0", "^1.90.0", target="win32-x64"),
+                                    release("2.2.0", "^1.80.0"),
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
 
         selected = query_extension("sample.extension", "1.95.3", "x64", fake_request)
         self.assertEqual(selected.version, "2.3.0")
@@ -89,11 +281,20 @@ class CoreTests(unittest.TestCase):
             settings = base / "settings.json"
             settings.write_text("{}", encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95", "package": "system", "arch": "x64"},
-                "extensions": [],
-                "settings": str(settings),
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {
+                            "version": "1.95",
+                            "package": "system",
+                            "arch": "x64",
+                        },
+                        "extensions": [],
+                        "settings": str(settings),
+                    }
+                ),
+                encoding="utf-8",
+            )
             with self.assertRaises(PackagerError):
                 load_config(config)
 
@@ -104,7 +305,8 @@ class CoreTests(unittest.TestCase):
             settings.parent.mkdir()
             settings.write_text("{}", encoding="utf-8")
             config = base / "config.json"
-            config.write_text('''{
+            config.write_text(
+                """{
                 // VS Code 下载配置
                 "vscode": {
                     "version": "1.95.3", /* 完整版本 */
@@ -114,7 +316,9 @@ class CoreTests(unittest.TestCase):
                 "extensions": [],
                 "settings": "https://settings.json",
                 "output_dir": "dist"
-            }''', encoding="utf-8")
+            }""",
+                encoding="utf-8",
+            )
             loaded = load_config(config)
             self.assertEqual(loaded.version, "1.95.3")
             self.assertEqual(loaded.settings, settings.resolve())
@@ -125,37 +329,50 @@ class CoreTests(unittest.TestCase):
             settings = base / "settings.json"
             settings.write_text("{}", encoding="utf-8")
             python_settings = base / "python-settings.json"
-            python_settings.write_text('{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8")
+            python_settings.write_text(
+                '{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8"
+            )
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "extensions": {
-                    "default": ["Sample.Common", "sample.common"],
-                    "profiles": {
-                        "Backend Java": ["Sample.Common", "Sample.Java"],
-                        "Python": ["Sample.Python"],
-                    },
-                },
-                "settings": {
-                    "default": str(settings),
-                    "profiles": {
-                        "Backend Java": {"use_default": True},
-                        "Python": str(python_settings),
-                    },
-                },
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "extensions": {
+                            "default": ["Sample.Common", "sample.common"],
+                            "profiles": {
+                                "Backend Java": ["Sample.Common", "Sample.Java"],
+                                "Python": ["Sample.Python"],
+                            },
+                        },
+                        "settings": {
+                            "default": str(settings),
+                            "profiles": {
+                                "Backend Java": {"use_default": True},
+                                "Python": str(python_settings),
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             loaded = load_config(config)
 
             self.assertEqual(loaded.extensions, ("sample.common",))
-            self.assertEqual(loaded.extension_profiles, (
-                ("Backend Java", ("sample.java",)),
-                ("Python", ("sample.python",)),
-            ))
-            self.assertEqual(loaded.profile_settings, (
-                ProfileSettings("Backend Java", None, True),
-                ProfileSettings("Python", python_settings.resolve()),
-            ))
+            self.assertEqual(
+                loaded.extension_profiles,
+                (
+                    ("Backend Java", ("sample.java",)),
+                    ("Python", ("sample.python",)),
+                ),
+            )
+            self.assertEqual(
+                loaded.profile_settings,
+                (
+                    ProfileSettings("Backend Java", None, True),
+                    ProfileSettings("Python", python_settings.resolve()),
+                ),
+            )
 
     def test_config_supports_legacy_install_mode_and_profile_resources(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -168,35 +385,46 @@ class CoreTests(unittest.TestCase):
             tasks = base / "python-tasks.json"
             tasks.write_text('{"version":"2.0.0","tasks":[]}', encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "install": {"mode": "replace"},
-                "extensions": {"profiles": {"Python": ["sample.python"]}},
-                "resources": {
-                    "default": {
-                        "keybindings": str(keybindings),
-                        "snippets": str(snippets),
-                    },
-                    "profiles": {
-                        "Python": {
-                            "keybindings": {"use_default": True},
-                            "tasks": str(tasks),
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "install": {"mode": "replace"},
+                        "extensions": {"profiles": {"Python": ["sample.python"]}},
+                        "resources": {
+                            "default": {
+                                "keybindings": str(keybindings),
+                                "snippets": str(snippets),
+                            },
+                            "profiles": {
+                                "Python": {
+                                    "keybindings": {"use_default": True},
+                                    "tasks": str(tasks),
+                                },
+                            },
                         },
-                    },
-                },
-            }), encoding="utf-8")
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             loaded = load_config(config)
 
             self.assertTrue(loaded.replace_extensions)
-            self.assertEqual(loaded.resources, (
-                ("keybindings", keybindings.resolve()),
-                ("snippets", snippets.resolve()),
-            ))
-            self.assertEqual(loaded.profile_resources, (
-                ProfileResource("Python", "keybindings", None, True),
-                ProfileResource("Python", "tasks", tasks.resolve()),
-            ))
+            self.assertEqual(
+                loaded.resources,
+                (
+                    ("keybindings", keybindings.resolve()),
+                    ("snippets", snippets.resolve()),
+                ),
+            )
+            self.assertEqual(
+                loaded.profile_resources,
+                (
+                    ProfileResource("Python", "keybindings", None, True),
+                    ProfileResource("Python", "tasks", tasks.resolve()),
+                ),
+            )
 
     def test_config_supports_default_xml_catalog_resource(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -205,10 +433,15 @@ class CoreTests(unittest.TestCase):
             xml.mkdir()
             (xml / "catalog.xml").write_text("<catalog/>", encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "resources": {"default": {"xml": str(xml)}},
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "resources": {"default": {"xml": str(xml)}},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             loaded = load_config(config)
 
@@ -220,10 +453,15 @@ class CoreTests(unittest.TestCase):
             xml = base / "xml"
             xml.mkdir()
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "resources": {"default": {"xml": str(xml)}},
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "resources": {"default": {"xml": str(xml)}},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             with self.assertRaisesRegex(PackagerError, "缺少 catalog.xml"):
                 load_config(config)
@@ -235,11 +473,16 @@ class CoreTests(unittest.TestCase):
             xml.mkdir()
             (xml / "catalog.xml").write_text("<catalog/>", encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "extensions": {"profiles": {"Java": []}},
-                "resources": {"profiles": {"Java": {"xml": str(xml)}}},
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "extensions": {"profiles": {"Java": []}},
+                        "resources": {"profiles": {"Java": {"xml": str(xml)}}},
+                    }
+                ),
+                encoding="utf-8",
+            )
 
             with self.assertRaisesRegex(PackagerError, "未知资源: xml"):
                 load_config(config)
@@ -247,10 +490,15 @@ class CoreTests(unittest.TestCase):
     def test_config_rejects_unknown_install_mode(self):
         with tempfile.TemporaryDirectory() as temp:
             config = Path(temp) / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "install": {"mode": "clean"},
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "install": {"mode": "clean"},
+                    }
+                ),
+                encoding="utf-8",
+            )
             with self.assertRaisesRegex(PackagerError, "merge 或 replace"):
                 load_config(config)
 
@@ -260,15 +508,22 @@ class CoreTests(unittest.TestCase):
             settings = base / "settings.json"
             settings.write_text("{}", encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "extensions": {"profiles": {"Java": ["sample.java"]}},
-                "settings": {
-                    "default": str(settings),
-                    "profiles": {"Python": {"use_default": True}},
-                },
-            }), encoding="utf-8")
-            with self.assertRaisesRegex(PackagerError, "未在 extensions.profiles 中声明"):
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "extensions": {"profiles": {"Java": ["sample.java"]}},
+                        "settings": {
+                            "default": str(settings),
+                            "profiles": {"Python": {"use_default": True}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                PackagerError, "未在 extensions.profiles 中声明"
+            ):
                 load_config(config)
 
     def test_config_rejects_reserved_default_profile(self):
@@ -277,11 +532,16 @@ class CoreTests(unittest.TestCase):
             settings = base / "settings.json"
             settings.write_text("{}", encoding="utf-8")
             config = base / "config.json"
-            config.write_text(json.dumps({
-                "vscode": {"version": "1.95.3"},
-                "extensions": {"profiles": {"Default": ["sample.extension"]}},
-                "settings": str(settings),
-            }), encoding="utf-8")
+            config.write_text(
+                json.dumps(
+                    {
+                        "vscode": {"version": "1.95.3"},
+                        "extensions": {"profiles": {"Default": ["sample.extension"]}},
+                        "settings": str(settings),
+                    }
+                ),
+                encoding="utf-8",
+            )
             with self.assertRaisesRegex(PackagerError, "Default 是保留名称"):
                 load_config(config)
 
@@ -294,12 +554,18 @@ class CoreTests(unittest.TestCase):
                 encoding="utf-8",
             )
             python_settings = base / "python-settings.json"
-            python_settings.write_text('{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8")
+            python_settings.write_text(
+                '{"python.analysis.typeCheckingMode":"basic"}', encoding="utf-8"
+            )
             keybindings = base / "keybindings.json"
-            keybindings.write_text('[{"key":"ctrl+k","command":"sample.command"}]', encoding="utf-8")
+            keybindings.write_text(
+                '[{"key":"ctrl+k","command":"sample.command"}]', encoding="utf-8"
+            )
             snippets = base / "snippets"
             snippets.mkdir()
-            (snippets / "global.code-snippets").write_text('{"sample":{"prefix":"s","body":"sample"}}', encoding="utf-8")
+            (snippets / "global.code-snippets").write_text(
+                '{"sample":{"prefix":"s","body":"sample"}}', encoding="utf-8"
+            )
             python_tasks = base / "python-tasks.json"
             python_tasks.write_text('{"version":"2.0.0","tasks":[]}', encoding="utf-8")
             xml = base / "xml"
@@ -340,19 +606,46 @@ class CoreTests(unittest.TestCase):
                 return "a" * 64
 
             def fake_query(extension_id, _version, _arch):
-                return ExtensionRelease(extension_id, "2.3.0", "^1.90.0", None, "https://example.test/sample.vsix")
+                return ExtensionRelease(
+                    extension_id,
+                    "2.3.0",
+                    "^1.90.0",
+                    None,
+                    "https://example.test/sample.vsix",
+                )
 
-            output = build_bundle(config, downloader=fake_download, extension_query=fake_query, progress=lambda _: None)
+            output = build_bundle(
+                config,
+                downloader=fake_download,
+                extension_query=fake_query,
+                extension_validator=lambda _path, _release: None,
+                progress=lambda _: None,
+                lock_file=base / "packager.lock.json",
+                update_lock=True,
+            )
             self.assertTrue(output.is_file())
+            locked_releases = load_extension_lock(
+                base / "packager.lock.json",
+                config.version,
+                config.arch,
+                ["sample.extension", "redhat.java", "ms-python.python"],
+            )
+            self.assertTrue(
+                all(release.sha256 == "a" * 64 for release in locked_releases.values())
+            )
             with zipfile.ZipFile(output) as archive:
                 names = set(archive.namelist())
                 prefix = "dev-forge-1.95.3-win32-x64/"
                 self.assertIn(prefix + "manifest.json", names)
                 self.assertIn(prefix + "install.ps1", names)
                 self.assertIn(prefix + "user-data/default/settings.json", names)
-                self.assertIn(prefix + "user-data/profiles/profile-2/settings.json", names)
+                self.assertIn(
+                    prefix + "user-data/profiles/profile-2/settings.json", names
+                )
                 self.assertIn(prefix + "user-data/default/keybindings.json", names)
-                self.assertIn(prefix + "user-data/default/snippets/global.code-snippets", names)
+                self.assertIn(
+                    prefix + "user-data/default/snippets/global.code-snippets", names
+                )
                 self.assertIn(prefix + "user-data/default/xml/catalog.xml", names)
                 self.assertIn(prefix + "user-data/default/xml/dtd/sample.dtd", names)
                 self.assertIn(prefix + "user-data/profiles/profile-2/tasks.json", names)
@@ -370,10 +663,15 @@ class CoreTests(unittest.TestCase):
                     python_profile_settings["xml.catalogs"],
                     ["__DEV_FORGE_XML_CATALOG__"],
                 )
-                install_script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
+                install_script = archive.read(prefix + "install.ps1").decode(
+                    "utf-8-sig"
+                )
                 self.assertIn("[switch]$ReplaceExtensions = $true", install_script)
                 self.assertIn("[switch]$ForceResources", install_script)
                 self.assertIn("[switch]$ForceVSCodeInstall", install_script)
+                self.assertIn(
+                    "[switch]$AllowExternalExtensionsDirectory", install_script
+                )
                 self.assertIn("if ($ReplaceExtensions)", install_script)
                 self.assertIn("默认保留本机现有扩展", install_script)
                 self.assertNotIn("$Mode", install_script)
@@ -384,16 +682,33 @@ class CoreTests(unittest.TestCase):
                     install_script,
                 )
                 self.assertIn("$env:VSCODE_EXTENSIONS", install_script)
-                self.assertIn("Join-Path $ArchiveTarget 'data\\extensions'", install_script)
-                self.assertIn("Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force", install_script)
-                self.assertIn("$ProfilesRoot = Join-Path $UserDataRoot 'profiles'", install_script)
-                self.assertIn("Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json'", install_script)
-                self.assertIn("Remove-Item -LiteralPath $ExtensionStateFile -Force", install_script)
+                self.assertIn(
+                    "Join-Path $ArchiveTarget 'data\\extensions'", install_script
+                )
+                self.assertIn(
+                    "Remove-Item -LiteralPath $UserExtensionsDir -Recurse -Force",
+                    install_script,
+                )
+                self.assertIn(
+                    "$ProfilesRoot = Join-Path $UserDataRoot 'profiles'", install_script
+                )
+                self.assertIn(
+                    "Get-ChildItem -LiteralPath $ProfilesRoot -Filter 'extensions.json'",
+                    install_script,
+                )
+                self.assertIn(
+                    "Remove-Item -LiteralPath $ExtensionStateFile -Force",
+                    install_script,
+                )
                 installer_check = install_script.index(
                     "if (-not (Test-Path -LiteralPath $Installer -PathType Leaf))"
                 )
-                extension_check = install_script.index("$RequiredExtensions = @($CommonExtensions)")
-                settings_check = install_script.index("$RequiredSettingsFiles = @($DefaultSettingsSource)")
+                extension_check = install_script.index(
+                    "$RequiredExtensions = @($CommonExtensions)"
+                )
+                settings_check = install_script.index(
+                    "$RequiredSettingsFiles = @($DefaultSettingsSource)"
+                )
                 process_check = install_script.index("$RunningCodeProcesses = @(")
                 remove_extensions = install_script.index(
                     "Remove-Item -LiteralPath $UserExtensionsDir"
@@ -401,7 +716,9 @@ class CoreTests(unittest.TestCase):
                 remove_profile_state = install_script.index(
                     "Remove-Item -LiteralPath $ExtensionStateFile"
                 )
-                install_vscode = install_script.index("if ($ArchiveMode) {", remove_extensions)
+                install_vscode = install_script.index(
+                    "if ($ArchiveMode) {", remove_extensions
+                )
                 self.assertLess(
                     installer_check,
                     extension_check,
@@ -412,11 +729,27 @@ class CoreTests(unittest.TestCase):
                 self.assertLess(remove_extensions, remove_profile_state)
                 self.assertLess(remove_profile_state, install_vscode)
                 self.assertIn("Settings Sync", install_script)
-                self.assertIn("-Wait -PassThru", install_script)
-                self.assertIn("'extensions\\sample.extension-2.3.0.vsix'", install_script)
-                self.assertIn("Id = 'sample.extension'; Version = '2.3.0'", install_script)
-                self.assertIn("'Backend Java' = @(\n        'extensions\\redhat.java-2.3.0.vsix'", install_script)
-                self.assertIn("'Python' = @(\n        'extensions\\ms-python.python-2.3.0.vsix'", install_script)
+                self.assertIn("function Invoke-ExternalProcess", install_script)
+                self.assertIn("function Stop-ExternalProcessTree", install_script)
+                self.assertIn(
+                    "$Process.WaitForExit($TimeoutSeconds * 1000)", install_script
+                )
+                self.assertIn("[int]$ProcessTimeoutSeconds = 300", install_script)
+                self.assertIn("[int]$InstallerTimeoutSeconds = 1800", install_script)
+                self.assertIn(
+                    "'extensions\\sample.extension-2.3.0.vsix'", install_script
+                )
+                self.assertIn(
+                    "Id = 'sample.extension'; Version = '2.3.0'", install_script
+                )
+                self.assertIn(
+                    "'Backend Java' = @(\n        'extensions\\redhat.java-2.3.0.vsix'",
+                    install_script,
+                )
+                self.assertIn(
+                    "'Python' = @(\n        'extensions\\ms-python.python-2.3.0.vsix'",
+                    install_script,
+                )
                 self.assertNotIn("$JavaExtensions", install_script)
                 self.assertIn("$TargetVSCodeVersion = '1.95.3'", install_script)
                 self.assertIn("$TargetVSCodeArch = 'x64'", install_script)
@@ -429,62 +762,111 @@ class CoreTests(unittest.TestCase):
                 self.assertIn("HKEY_CURRENT_USER\\Software\\Microsoft", install_script)
                 self.assertIn("HKEY_LOCAL_MACHINE\\Software\\Microsoft", install_script)
                 self.assertIn("$InstallLocationProperty", install_script)
-                self.assertIn("$DetectedPackageKinds -notcontains $PackageKind", install_script)
-                self.assertIn("与离线包 package 参数 $PackageKind 不一致", install_script)
+                self.assertIn(
+                    "$DetectedPackageKinds -notcontains $PackageKind", install_script
+                )
+                self.assertIn(
+                    "与离线包 package 参数 $PackageKind 不一致", install_script
+                )
                 package_check = install_script.index(
                     "$DetectedPackageKinds -notcontains $PackageKind"
                 )
                 self.assertLess(package_check, process_check)
                 self.assertLess(package_check, remove_extensions)
-                self.assertIn("if ($SameVersion -and (-not $ForceVSCodeInstall))", install_script)
+                hash_check = install_script.index(
+                    "foreach ($RelativePath in $FileHashes.Keys)"
+                )
+                self.assertLess(hash_check, process_check)
+                self.assertLess(hash_check, remove_extensions)
+                self.assertIn("SHA-256 校验失败", install_script)
+                self.assertIn("function Assert-SafeExtensionsDirectory", install_script)
+                self.assertIn("拒绝删除危险的扩展目录", install_script)
+                self.assertIn("拒绝递归删除包含符号链接或目录联接", install_script)
+                self.assertIn("VSCODE_EXTENSIONS 位于当前用户目录之外", install_script)
+                self.assertIn(
+                    "if ($SameVersion -and (-not $ForceVSCodeInstall))", install_script
+                )
                 self.assertIn("跳过安装器", install_script)
+                self.assertIn("$InstallLog = Join-Path", install_script)
+                self.assertIn('Write-InstallLog "START [$Label]', install_script)
                 self.assertIn("$InstalledExtensionPaths = @{}", install_script)
                 self.assertIn("function Stop-ResidualCodeProcesses", install_script)
                 self.assertIn("function Get-InstalledExtensionVersions", install_script)
-                self.assertIn("@('--list-extensions', '--show-versions')", install_script)
-                self.assertIn("$InstalledVersion -eq [string]$Metadata.Version", install_script)
+                self.assertIn(
+                    "@('--list-extensions', '--show-versions')", install_script
+                )
+                self.assertIn(
+                    "$InstalledVersion -eq [string]$Metadata.Version", install_script
+                )
                 self.assertIn("function Install-ExtensionBatch", install_script)
                 self.assertIn("$ExtensionBatchSize = 20", install_script)
-                self.assertIn("$Arguments += @('--install-extension', $ExtensionPath)", install_script)
-                self.assertIn("$Arguments += '--do-not-include-pack-dependencies'", install_script)
-                self.assertIn("批量安装失败，将拆分为单个扩展重试", install_script)
-                self.assertIn("扩展安装失败，将在清理 VS Code 进程后重试", install_script)
-                self.assertIn("function Test-ProfileAvailable", install_script)
-                self.assertIn("$ErrorActionPreference = 'Continue'", install_script)
-                self.assertIn("'--list-extensions' 2>$null", install_script)
-                self.assertIn("function Ensure-Profile", install_script)
                 self.assertIn(
-                    "& $CodePath '--profile' $Name '--list-extensions'",
+                    "$Arguments += @('--install-extension', $ExtensionPath)",
                     install_script,
                 )
+                self.assertIn(
+                    "$Arguments += '--do-not-include-pack-dependencies'", install_script
+                )
+                self.assertIn("批量安装失败，将拆分为单个扩展重试", install_script)
+                self.assertIn(
+                    "扩展安装失败，将在清理 VS Code 进程后重试", install_script
+                )
+                self.assertIn("function Test-ProfileAvailable", install_script)
+                self.assertIn(
+                    "-Arguments @('--profile', $Name, '--list-extensions')",
+                    install_script,
+                )
+                self.assertIn("function Ensure-Profile", install_script)
                 self.assertNotIn("--user-data-dir", install_script)
-                self.assertIn("'--profile' $Name '--new-window' $BootstrapFolder", install_script)
+                self.assertIn(
+                    "-Arguments @('--profile', $Name, '--new-window', $BootstrapFolder)",
+                    install_script,
+                )
                 self.assertIn("VS Code 未能在 20 秒内创建 Profile", install_script)
                 self.assertIn("Get-Process -Name 'Code'", install_script)
                 self.assertLess(
                     install_script.index("Ensure-Profile -Name $ProfileName"),
-                    install_script.index("Install-ProfileExtensions -RelativePaths $ExtensionsForProfile -Profile $ProfileName"),
+                    install_script.index(
+                        "Install-ProfileExtensions -RelativePaths $ExtensionsForProfile -Profile $ProfileName"
+                    ),
                 )
-                self.assertIn("$SharedSettingsProfiles = @(\n    'Backend Java'", install_script)
-                self.assertIn("'Python' = 'user-data\\profiles\\profile-2\\settings.json'", install_script)
+                self.assertIn(
+                    "$SharedSettingsProfiles = @(\n    'Backend Java'", install_script
+                )
+                self.assertIn(
+                    "'Python' = 'user-data\\profiles\\profile-2\\settings.json'",
+                    install_script,
+                )
                 self.assertIn("Set-ProfileResourceInheritance", install_script)
                 self.assertIn("$DefaultResources = [ordered]@{", install_script)
-                self.assertIn("'keybindings' = 'user-data\\default\\keybindings.json'", install_script)
+                self.assertIn(
+                    "'keybindings' = 'user-data\\default\\keybindings.json'",
+                    install_script,
+                )
                 self.assertIn("$SharedProfileResources = [ordered]@{", install_script)
                 self.assertIn("$ProfileResources = [ordered]@{", install_script)
                 self.assertIn("function Copy-ProfileResource", install_script)
                 self.assertIn("function Resolve-XmlCatalogSetting", install_script)
-                self.assertIn("$XmlCatalogSettingToken = '__DEV_FORGE_XML_CATALOG__'", install_script)
+                self.assertIn(
+                    "$XmlCatalogSettingToken = '__DEV_FORGE_XML_CATALOG__'",
+                    install_script,
+                )
                 self.assertIn("'xml' = 'user-data\\default\\xml'", install_script)
                 self.assertIn("Join-Path $Target 'catalog.xml'", install_script)
                 self.assertIn("$CatalogPath.Replace('\\', '\\\\')", install_script)
-                self.assertIn("$SettingsContent.Contains($CatalogJsonPath)", install_script)
+                self.assertIn(
+                    "$SettingsContent.Contains($CatalogJsonPath)", install_script
+                )
                 self.assertIn("尚未注册 XML Catalog", install_script)
                 self.assertIn("-ResourceName $ResourceName", install_script)
                 self.assertIn("useDefaultFlags", install_script)
-                self.assertIn("New-Object System.Text.UTF8Encoding($false)", install_script)
+                self.assertIn(
+                    "New-Object System.Text.UTF8Encoding($false)", install_script
+                )
                 self.assertIn("[IO.File]::WriteAllText($StoragePath", install_script)
-                self.assertNotIn("Set-Content -LiteralPath $StoragePath", install_script)
+                self.assertNotIn(
+                    "Set-Content -LiteralPath $StoragePath", install_script
+                )
                 manifest = json.loads(archive.read(prefix + "manifest.json"))
                 self.assertEqual(manifest["extensions"][0]["version"], "2.3.0")
                 self.assertEqual(manifest["schema_version"], 4)
@@ -531,16 +913,22 @@ class CoreTests(unittest.TestCase):
                 destination.write_bytes(b"archive")
                 return "b" * 64
 
-            output = build_bundle(config, downloader=fake_download, progress=lambda _: None)
+            output = build_bundle(
+                config, downloader=fake_download, progress=lambda _: None
+            )
             with zipfile.ZipFile(output) as archive:
                 prefix = "dev-forge-1.95.3-win32-arm64/"
                 script = archive.read(prefix + "install.ps1").decode("utf-8-sig")
                 self.assertIn("$ArchiveMode = $true", script)
                 self.assertIn("[switch]$ReplaceExtensions = $false", script)
                 self.assertIn("Expand-Archive", script)
+                self.assertIn("$ArchiveMatches", script)
+                self.assertIn("Archive 目录已存在但版本/架构不匹配", script)
                 self.assertNotIn("if (true)", script)
                 self.assertEqual(
-                    archive.read(prefix + "user-data/default/settings.json").decode("utf-8"),
+                    archive.read(prefix + "user-data/default/settings.json").decode(
+                        "utf-8"
+                    ),
                     "{}\n",
                 )
 

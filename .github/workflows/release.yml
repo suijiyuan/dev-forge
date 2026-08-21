@@ -1,4 +1,4 @@
-name: Build and publish release
+name: Release
 
 on:
   push:
@@ -55,7 +55,13 @@ jobs:
           fi
 
       - name: Build offline bundle
-        run: dev-forge --config packager.jsonc --archive-only
+        run: dev-forge --config packager.jsonc --archive-only --locked
+
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum -- *.zip > SHA256SUMS.txt
 
       - name: Publish GitHub Release
         shell: bash
@@ -64,6 +70,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" \
             dist/*.zip \
+            dist/SHA256SUMS.txt \
             --verify-tag \
             --generate-notes \
             --title "$RELEASE_TAG"

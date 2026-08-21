@@ -65,8 +65,8 @@ dev-forge-1.95.3-win32-x64/
 仓库中的 `.github/workflows/release.yml` 会在推送 `v*` 标签时自动完成以下工作：
 
 1. 检出标签对应的代码；
-2. 使用 Python 3.12 安装 Dev Forge 并运行测试；
-3. 执行 `dev-forge --config packager.jsonc --archive-only`；
+2. 使用 Python 3.11.15 安装 Dev Forge 并运行测试；
+3. 执行 `dev-forge --config packager.jsonc --archive-only --locked`，严格使用已提交的扩展锁文件；
 4. 为 ZIP 生成 `SHA256SUMS.txt`；
 5. 创建与标签同名的 GitHub Release，并上传 ZIP 和校验文件。
 
@@ -520,6 +520,8 @@ dev-forge [-h]
           [--settings SETTINGS]
           [--output-dir OUTPUT_DIR]
           [--archive-only]
+          [--lock-file LOCK_FILE]
+          [--update-lock | --no-lock | --locked]
 ```
 
 | 参数 | 是否需要值 | 默认值 | 说明 |
@@ -529,9 +531,18 @@ dev-forge [-h]
 | `--settings` | 是 | 配置中的值 | 覆盖 Default 设置路径；保留对象中的 Profile 设置 |
 | `--output-dir` | 是 | 配置中的值 | 覆盖 `output_dir`；相对路径基于配置文件所在目录 |
 | `--archive-only` | 否 | 关闭 | 成功生成 ZIP 后删除未压缩的中间文件夹，只保留 ZIP |
+| `--lock-file` | 是 | 配置同目录的 `packager.lock.json` | 指定扩展版本锁文件 |
+| `--update-lock` | 否 | 关闭 | 查询 Marketplace 并用当前最新兼容版本重写锁文件 |
+| `--locked` | 否 | 关闭 | 锁文件不存在或与版本、架构、扩展集合不一致时立即失败 |
+| `--no-lock` | 否 | 关闭 | 显式使用非可复现的动态解析模式 |
 
 命令行没有提供 `version`、`package`、`arch` 或 `extensions` 的覆盖参数，这些项目需要在
 JSON 配置文件中修改。
+
+`packager.lock.json` 锁定每个扩展的版本、平台、engine 约束、版本化下载地址和
+VSIX SHA-256；锁定构建会在下载后比对哈希，内容与锁文件不一致时立即失败。
+日常构建及 CI 应使用 `--locked`；只在明确准备升级扩展时使用
+`--update-lock`，并将锁文件变化与配置一起审核。
 
 示例：
 
@@ -566,26 +577,39 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 # 即使检测到相同版本，也强制重新运行 VS Code 安装器
 .\install.ps1 -ForceVSCodeInstall
+
+# 覆盖普通 code.cmd 调用和安装器的超时时间
+.\install.ps1 -ProcessTimeoutSeconds 600 -InstallerTimeoutSeconds 2400
+
+# 明确允许清理当前用户目录之外的 VSCODE_EXTENSIONS（仍要求最终目录名为 extensions）
+.\install.ps1 -ReplaceExtensions -AllowExternalExtensionsDirectory
 ```
 
 运行前必须关闭所有 VS Code 窗口，并从独立 PowerShell 执行。VS Code 运行中的进程会缓存
 Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.cmd` 识别；安装脚本会
 检测 `Code` 进程并给出明确错误。
 
-脚本会先检查 VS Code 安装包、清单中的所有 VSIX、settings 和 Profile 资源是否存在，并
+脚本会先检查 VS Code 安装包、清单中的所有 VSIX、settings 和 Profile 资源是否存在，
+并在任何扩展清理之前按 manifest 校验所有文件的 SHA-256，然后
 确认没有正在运行的 `Code` 进程。默认直接保留现有扩展；传入 `-ReplaceExtensions` 才会递归
 删除当前用户的 `%USERPROFILE%\.vscode\extensions`、`VSCODE_EXTENSIONS` 环境变量指定的
 目录，以及 ZIP Archive Mode 已存在的 `data\extensions`，再按清单重建。
 
 对于 Installer Mode，脚本会读取现有 `code.cmd --version`。版本和架构均符合清单时默认
-跳过 VS Code 安装器；需要修复安装时可使用 `-ForceVSCodeInstall`。Archive Mode 仍在目标
-目录不存在时解压，目录已经存在时继续复用。
+跳过 VS Code 安装器；需要修复安装时可使用 `-ForceVSCodeInstall`。Archive Mode 会先
+校验 ZIP 可读性，并对已存在的解压目录核对版本与架构；不匹配时默认终止，
+只有 `-ForceVSCodeInstall` 才会删除并重新解压。
 
 使用 `-ReplaceExtensions` 时，删除物理扩展目录的同时，脚本也会删除 `%APPDATA%\Code\User\profiles` 下各 Profile 的
 `extensions.json` 扩展清单，防止清单继续引用已经不存在的扩展目录。Profile 本身以及
 settings、keybindings、snippets、tasks 等其他配置不会被删除。
 
 如果启用了 Settings Sync，应先关闭 Extensions 和 Profiles 同步，避免联网后恢复旧扩展。
+为防止环境变量误配导致大范围递归删除，`VSCODE_EXTENSIONS` 的最终目录名必须是
+`extensions`，且不能指向磁盘根、用户主目录、离线包目录或包内的 VSIX 源目录。
+位于当前用户目录之外的自定义路径还必须显式传入 `-AllowExternalExtensionsDirectory`；
+该开关不会放宽前述目录名和危险路径检查。为避免通过目录联接绕过边界，待删除路径及其
+现有父目录链中包含符号链接或目录联接时也会拒绝递归删除。
 通过快捷方式的 `--extensions-dir` 参数指定、且未同时设置 `VSCODE_EXTENSIONS` 的其他目录
 无法由脚本自动发现，需要单独清理。WSL、Remote SSH 和 Dev Container 中的远程扩展也不在
 本脚本的清理范围内。
@@ -605,9 +629,14 @@ Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-
 
 ## 开发与测试
 
+源码按职责拆分：`config.py` 负责 JSONC 和资源解析，`marketplace.py` 负责扩展选择、
+网络重试和 VSIX 校验，`manifest.py` 负责扩展锁文件，`bundle.py` 负责装配与归档，
+`installer.py` 从 `templates/install.ps1` 渲染安装器。`core.py` 仅保留原公共 API 的兼容导出。
+
 ```bash
 python3 -m unittest discover -s src/tests -v
 ```
 
-Marketplace 下载接口不需要令牌。网络请求会重试，下载先写入 `.part` 文件，完成后再
-原子替换。
+Marketplace 接口不需要令牌。元数据查询和文件下载都会指数退避重试三次；
+下载先写入 `.part` 文件，完成后再原子替换。下载后还会验证 VSIX ZIP 结构及
+`extension/package.json` 中的扩展 ID 和版本。

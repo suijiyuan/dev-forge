@@ -3,6 +3,7 @@
   "vscode": {
     // 必填。目标 VS Code 的完整稳定版本号，格式必须为 major.minor.patch。
     // 此版本既用于下载 VS Code，也用于筛选兼容的扩展版本。
+    // 扩展的精确版本记录在同目录 packager.lock.json；修改版本或扩展清单后运行 --update-lock。
     // 支持示例："1.95.3"、"1.100.0"。
     // 不支持："latest"、"1.95"、Insiders 版本或版本范围。
     "version": "1.134.0",

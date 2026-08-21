@@ -18,7 +18,9 @@ class Version:
 
     @classmethod
     def parse(cls, value: str) -> Version:
-        match = re.fullmatch(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?", value.strip())
+        match = re.fullmatch(
+            r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?", value.strip()
+        )
         if not match:
             raise ValueError(f"无效版本号: {value}")
         return cls(*(int(part or 0) for part in match.groups()))
@@ -47,15 +49,29 @@ def _test_comparator(version: Version, token: str) -> bool:
         raw = token.lstrip("~> ")
         base = Version.parse(raw)
         parts = raw.split(".")
-        upper = Version(base.major + 1, 0, 0) if len(parts) == 1 else Version(base.major, base.minor + 1, 0)
+        upper = (
+            Version(base.major + 1, 0, 0)
+            if len(parts) == 1
+            else Version(base.major, base.minor + 1, 0)
+        )
         return base <= version < upper
 
-    match = re.fullmatch(r"(>=|<=|>|<|=)?\s*v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:[-+].*)?", token)
+    match = re.fullmatch(
+        r"(>=|<=|>|<|=)?\s*v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:[-+].*)?",
+        token,
+    )
     if not match:
         raise ValueError(f"不支持的版本约束: {token}")
     operator, major, minor, patch = match.groups()
     pieces = (major, minor, patch)
-    wildcard_at = next((i for i, item in enumerate(pieces) if item is None or item.lower() == "x" or item == "*"), None)
+    wildcard_at = next(
+        (
+            i
+            for i, item in enumerate(pieces)
+            if item is None or item.lower() == "x" or item == "*"
+        ),
+        None,
+    )
     numeric = [int(item) if item and item.isdigit() else 0 for item in pieces]
     base = Version(*numeric)
 
@@ -87,7 +103,11 @@ def satisfies(version_value: str, constraint: str) -> bool:
     for alternative in re.split(r"\s*\|\|\s*", constraint):
         hyphen = re.fullmatch(r"\s*(\S+)\s+-\s+(\S+)\s*", alternative)
         if hyphen:
-            if Version.parse(hyphen.group(1)) <= version <= Version.parse(hyphen.group(2)):
+            if (
+                Version.parse(hyphen.group(1))
+                <= version
+                <= Version.parse(hyphen.group(2))
+            ):
                 return True
             continue
         tokens = [item for item in re.split(r"[\s,]+", alternative.strip()) if item]

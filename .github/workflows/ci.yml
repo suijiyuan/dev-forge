@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s src/tests -v
+      - name: Validate checked-in configuration and lock
+        run: |
+          python -c 'from pathlib import Path; from dev_forge.core import load_config, load_extension_lock; c=load_config(Path("packager.jsonc").resolve()); ids=list(dict.fromkeys(c.extensions+tuple(x for _, group in c.extension_profiles for x in group))); load_extension_lock(Path("packager.lock.json"), c.version, c.arch, ids)'
+
+  powershell:
+    name: Generated PowerShell syntax
+    runs-on: windows-latest
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.15"
+      - run: python -m pip install -e .
+      - run: python -m unittest discover -s src/tests -v
+      - name: Parse generated installer
+        shell: powershell
+        run: |
+          python src/tests/render_test_installer.py "$env:RUNNER_TEMP\install.ps1"
+          $Tokens = $null
+          $Errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$env:RUNNER_TEMP\install.ps1",
+            [ref]$Tokens,
+            [ref]$Errors
+          ) | Out-Null
+          if ($Errors.Count -gt 0) {
+            $Errors | ForEach-Object { Write-Error $_ }
+            throw 'Generated install.ps1 has syntax errors.'
+          }
