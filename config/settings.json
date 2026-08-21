@@ -5,6 +5,7 @@
     },
     "editor.wordWrap": "on",
     "explorer.confirmDelete": false,
+    "explorer.confirmDragAndDrop": false,
     "explorer.confirmPasteNative": false,
     "files.autoGuessEncoding": true,
     "files.autoSave": "afterDelay",
