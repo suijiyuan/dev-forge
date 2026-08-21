@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import re
 import shutil
 import tempfile
 import time
-from typing import Any, Callable
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
-import zipfile
 
 from .semver import Version, satisfies
-
 
 GALLERY_QUERY_URL = "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery"
 XML_CATALOG_SETTING_TOKEN = "__DEV_FORGE_XML_CATALOG__"

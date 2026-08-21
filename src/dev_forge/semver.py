@@ -6,8 +6,8 @@ It covers the forms used by extension manifests: comparators, whitespace AND,
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, order=True)
@@ -17,7 +17,7 @@ class Version:
     patch: int = 0
 
     @classmethod
-    def parse(cls, value: str) -> "Version":
+    def parse(cls, value: str) -> Version:
         match = re.fullmatch(r"v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?", value.strip())
         if not match:
             raise ValueError(f"无效版本号: {value}")
