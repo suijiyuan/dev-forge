@@ -638,6 +638,11 @@ class CoreTests(unittest.TestCase):
                 prefix = "dev-forge-1.95.3-win32-x64/"
                 self.assertIn(prefix + "manifest.json", names)
                 self.assertIn(prefix + "install.ps1", names)
+                bundle_readme = archive.read(prefix + "README.txt").decode("utf-8")
+                self.assertIn("版本完全相同", bundle_readme)
+                self.assertIn("本地版本更高或更低", bundle_readme)
+                self.assertIn("不删除目标端额外文件", bundle_readme)
+                self.assertNotIn("已经达到离线清单版本", bundle_readme)
                 self.assertIn(prefix + "user-data/default/settings.json", names)
                 self.assertIn(
                     prefix + "user-data/profiles/profile-2/settings.json", names

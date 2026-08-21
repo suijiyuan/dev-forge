@@ -23,14 +23,18 @@
 
 ```bash
 python3 -m pip install -e .
-# 编辑版本和扩展列表
-dev-forge --config packager.jsonc
+
+# 配置未变化时，严格使用已提交的扩展锁文件构建
+dev-forge --config packager.jsonc --locked
+
+# 修改 VS Code 版本或扩展列表后，重新解析并更新锁文件
+dev-forge --config packager.jsonc --update-lock
 ```
 
 不希望安装命令行入口时，也可以直接指定源码目录运行：
 
 ```bash
-PYTHONPATH=src python3 -m dev_forge --config packager.jsonc
+PYTHONPATH=src python3 -m dev_forge --config packager.jsonc --locked
 ```
 
 默认在 `dist/` 中生成：
@@ -49,7 +53,10 @@ dev-forge-1.95.3-win32-x64/
     ├── default/
     │   ├── settings.json
     │   ├── keybindings.json
-    │   └── snippets/
+    │   ├── snippets/
+    │   ├── tasks.json
+    │   ├── mcp.json
+    │   └── xml/
     └── profiles/
         └── profile-<n>/
             ├── settings.json
@@ -238,6 +245,7 @@ VS Code。如果检测到的安装方式中不包含打包时的 `package`，脚
 - `default`：通用扩展数组，安装到 Default，并同步安装到每个已配置 Profile。
 - `profiles`：以任意 Profile 名称为键、扩展数组为值的对象。
 - Profile 名称去除首尾空格后不能为空，且不能使用保留名称 `Default`。
+- Profile 名称按不区分大小写的方式检查重复；例如 `Java` 和 `java` 不能同时声明。
 - 每项格式：Marketplace 扩展 ID `publisher.name`。
 - ID 不区分大小写，读取后会转成小写；同一分组内重复 ID 会自动去重。
 - Profile 中重复声明的 `default` 扩展会自动忽略，因为它已经会同步到该 Profile。
@@ -398,8 +406,11 @@ code --list-extensions
 "settings": "./profiles/frontend-settings.json"
 ```
 
-显式指定的源文件必须存在并且是普通文件，否则打包会终止。程序原样复制内容，不会解析、
-合并或修改 JSON/JSONC。
+显式指定的源文件必须存在并且是普通文件，否则打包会终止。未配置 XML Catalog 时，
+程序原样复制内容，不会解析、合并或修改 JSON/JSONC。配置
+`resources.default.xml` 后，程序会解析 Default 和独立 Profile 的 settings，在
+`xml.catalogs` 中注入安装时占位路径，并将其重新格式化为标准 JSON；原有注释和
+尾随逗号不会保留。
 
 多个 Profile 真正共享同一份 Default 配置：
 
@@ -490,9 +501,11 @@ Profile 名称必须已经在 `extensions.profiles` 中声明。`"auto"` 会读�
 使用 `.\install.ps1 -ForceResources` 可覆盖 keybindings、tasks、MCP、XML Catalog 和
 同名 snippet 文件。该参数不控制 `settings.json`；settings 仍由 `-ForceSettings` 单独
 控制。如果目标 settings 已存在且未覆盖，安装器会保留它并警告 XML Catalog 尚未注册。
-仓库内置的 `config/xml/catalog.xml` 当前映射 Maven 4.0.0 XSD 的旧地址、HTTP、HTTPS
-地址，以及 MyBatis 3 Mapper DTD 的 HTTP systemId；增加其他 DTD/XSD 时，将文件放入
-该目录并在 Catalog 中增加映射即可。
+仓库内置的 `config/xml/catalog.xml` 当前包含 43 条显式映射，覆盖 Maven 4.0.0、
+MyBatis 3.0.5、Java EE Web Application 2.5/3.0、Spring Framework 3.0.6 和
+Apache CXF 2.6.1 所需的离线 DTD/XSD 及传递依赖。常用约束同时映射 HTTP、HTTPS，
+Spring 同时支持带 `3.0` 版本号和不带版本号的 URL。详细目录结构和扩展规则见
+[`config/README.md`](config/README.md)。
 
 ### `output_dir`
 
@@ -541,6 +554,10 @@ JSON 配置文件中修改。
 
 `packager.lock.json` 锁定每个扩展的版本、平台、engine 约束、版本化下载地址和
 VSIX SHA-256；锁定构建会在下载后比对哈希，内容与锁文件不一致时立即失败。
+未指定锁模式时，如果默认或 `--lock-file` 指定的锁文件已存在，程序仍会使用并校验它；
+如果不存在，则动态查询 Marketplace，但不会自动生成锁文件。`--locked` 进一步要求
+锁文件必须存在。`--lock-file` 显式路径中的相对路径基于当前工作目录；默认锁文件则位于
+配置文件同目录。
 日常构建及 CI 应使用 `--locked`；只在明确准备升级扩展时使用
 `--update-lock`，并将锁文件变化与配置一起审核。
 
@@ -584,6 +601,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 # 明确允许清理当前用户目录之外的 VSCODE_EXTENSIONS（仍要求最终目录名为 extensions）
 .\install.ps1 -ReplaceExtensions -AllowExternalExtensionsDirectory
 ```
+
+`ProcessTimeoutSeconds` 默认为 300 秒，可设为 10–86400 秒；
+`InstallerTimeoutSeconds` 默认为 1800 秒，可设为 60–86400 秒。脚本启动时会显示
+`%TEMP%\dev-forge-install-<timestamp>-<id>.log` 路径，外部进程的标准输出、错误输出、
+退出码和耗时均会写入该日志。
 
 运行前必须关闭所有 VS Code 窗口，并从独立 PowerShell 执行。VS Code 运行中的进程会缓存
 Profile 元数据，导致刚写入 `storage.json` 的 Profile 无法被 `code.cmd` 识别；安装脚本会
@@ -637,6 +659,14 @@ Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-
 python3 -m unittest discover -s src/tests -v
 ```
 
+GitHub Actions 会在 Linux 上使用 Python 3.10–3.13 运行测试并校验已提交的配置/锁文件，
+还会在 Windows PowerShell 上渲染并解析生成的 `install.ps1`。这些静态和单元测试不等同于
+真实 Windows 离线安装；发布前仍应在目标机执行安装验收。
+
 Marketplace 接口不需要令牌。元数据查询和文件下载都会指数退避重试三次；
 下载先写入 `.part` 文件，完成后再原子替换。下载后还会验证 VSIX ZIP 结构及
 `extension/package.json` 中的扩展 ID 和版本。
+
+## License
+
+本项目使用 [MIT License](LICENSE)。

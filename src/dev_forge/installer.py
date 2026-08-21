@@ -169,9 +169,9 @@ def _write_support_files(root: Path, config: Config, manifest: dict[str, Any]) -
    - 通用扩展安装到 Default 和所有已配置 Profile；
    - Profile 专属扩展仅安装到对应 Profile。
 6. settings.json 仅在目标不存在时复制；使用 -ForceSettings 可覆盖。
-7. keybindings、snippets、tasks、MCP、XML Catalog 默认保留已有文件；使用 -ForceResources 可覆盖。
+7. keybindings、snippets、tasks、MCP、XML Catalog 默认保留已有文件；使用 -ForceResources 可覆盖同名文件。目录资源始终按文件合并，不删除目标端额外文件。
 8. 已安装相同版本的 VS Code 默认跳过；Archive Mode 仅复用版本和架构完全匹配的目录，使用 -ForceVSCodeInstall 可强制替换。
-9. 默认会跳过各 Profile 中已经达到离线清单版本的扩展。
+9. 默认仅跳过各 Profile 中与离线清单版本完全相同的扩展；本地版本更高或更低时都会强制安装清单版本。
 10. 扩展包成员和依赖必须显式打包，安装时不会由 VS Code CLI 自动展开。
 11. 所有外部进程均有超时限制，标准输出、错误输出、退出码和耗时写入脚本启动时显示的日志。
 12. 用户目录之外的 VSCODE_EXTENSIONS 默认拒绝清理；确认后可显式使用 -AllowExternalExtensionsDirectory。
