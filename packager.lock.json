@@ -134,6 +134,14 @@
       "sha256": "edebbbcbd211d6ec52159d08a650e2785b778966dc99dc1fd6501c5eaf92e02f"
     },
     {
+      "id": "hendiaome.vscode-maven-helper",
+      "version": "1.1.1",
+      "engine": "^1.60.0",
+      "target_platform": "universal",
+      "download_url": "https://hendiaome.gallerycdn.vsassets.io/extensions/hendiaome/vscode-maven-helper/1.1.1/1784874076670/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "f2e16815bfa08f6234fcf7f41946ec59d71c8992d9d0f09d96cb1850dbbc1e69"
+    },
+    {
       "id": "ms-azuretools.vscode-containers",
       "version": "2.4.5",
       "engine": "^1.105.0",

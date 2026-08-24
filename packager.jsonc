@@ -46,6 +46,7 @@
     ],
     "profiles": {
       "Profile 10 - Java": [
+        "hendiaome.vscode-maven-helper",
         "ms-azuretools.vscode-containers",
         "ms-azuretools.vscode-docker",
         "ms-vscode-remote.remote-containers",

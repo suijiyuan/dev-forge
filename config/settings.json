@@ -16,6 +16,8 @@
     "java.configuration.maven.globalSettings": "",
     "java.configuration.runtimes": [],
     "java.jdt.ls.java.home": "",
+    "maven-helper.log.debug": false,
+    "maven-helper.maven.useNativeDependencyTree": true,
     "npm.packageManager": "npm",
     "npm.scriptRunner": "npm",
     "python-envs.defaultEnvManager": "ms-python.python:conda",
