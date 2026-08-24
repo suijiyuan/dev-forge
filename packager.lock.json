@@ -383,11 +383,11 @@
     },
     {
       "id": "vue.volar",
-      "version": "3.3.10",
+      "version": "3.3.11",
       "engine": "^1.88.0",
       "target_platform": "universal",
-      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.10/1786770993361/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "5e8d3469c1b7d12d7f5ef0b26578b353b769eb8842fdf06d4b917fc83416736d"
+      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.11/1787306786187/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "c1d10ba0ce9cce7d25ae4f46766061e79c54297117bb9a647da89126f174e9ec"
     }
   ]
 }
