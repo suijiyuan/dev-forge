@@ -71,11 +71,11 @@
     },
     {
       "id": "ms-vscode-remote.remote-ssh",
-      "version": "0.124.0",
-      "engine": "^1.107.0",
+      "version": "0.126.0",
+      "engine": "^1.133.0",
       "target_platform": "universal",
-      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-ssh/0.124.0/1780517578200/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "1a891224e1291e89a405b90f5018555d6642ac66e2e68653970e4f155d766416"
+      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-ssh/0.126.0/1787707744961/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "4048ba93f1161e7688f316442296866fbf482d4d9769d8d9ec1826e28fae8b11"
     },
     {
       "id": "ms-vscode-remote.remote-ssh-edit",
@@ -143,11 +143,11 @@
     },
     {
       "id": "ms-azuretools.vscode-containers",
-      "version": "2.4.5",
+      "version": "2.5.0",
       "engine": "^1.105.0",
       "target_platform": "universal",
-      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.4.5/1780056837253/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "26cfb8d374ad745dd69a51ce881efc50a33bee78d17ae28e890f4d1e71658ecf"
+      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.5.0/1787591077390/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "358608db0e4df0f10f78570ed4f1ed0fa8629cae916fa531e8eb7c398c58c9d5"
     },
     {
       "id": "ms-azuretools.vscode-docker",
