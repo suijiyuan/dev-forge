@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.134.0",
+    "vscode_version": "1.135.0",
     "arch": "x64"
   },
   "extensions": [
@@ -71,11 +71,11 @@
     },
     {
       "id": "ms-vscode-remote.remote-ssh",
-      "version": "0.126.0",
+      "version": "0.128.0",
       "engine": "^1.133.0",
       "target_platform": "universal",
-      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-ssh/0.126.0/1787707744961/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "4048ba93f1161e7688f316442296866fbf482d4d9769d8d9ec1826e28fae8b11"
+      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-ssh/0.128.0/1787756180138/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "458bfdea562840a3a4d9cb246cfe9a212c67a0c9317a8fdd0d22aeaedc82bf2c"
     },
     {
       "id": "ms-vscode-remote.remote-ssh-edit",
@@ -111,11 +111,11 @@
     },
     {
       "id": "streetsidesoftware.code-spell-checker",
-      "version": "4.5.6",
+      "version": "4.7.3",
       "engine": "^1.104.0",
       "target_platform": "universal",
-      "download_url": "https://streetsidesoftware.gallerycdn.vsassets.io/extensions/streetsidesoftware/code-spell-checker/4.5.6/1770621236684/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "0006a465e0a13791e4861a9b1945923179b84dbabb9fec9d5aeb440cf51d46a4"
+      "download_url": "https://streetsidesoftware.gallerycdn.vsassets.io/extensions/streetsidesoftware/code-spell-checker/4.7.3/1787748063886/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "c6fbf0fbc26f46d7b77f7666db83737e314c79302429e512d04aaac45a0497fd"
     },
     {
       "id": "tyriar.sort-lines",
