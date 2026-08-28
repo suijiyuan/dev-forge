@@ -61,7 +61,6 @@
         "vscjava.vscode-lombok",
         "vscjava.vscode-maven",
         "vscjava.vscode-spring-boot-dashboard",
-        "vscjava.vscode-spring-initializr",
         "yangbaopan.vscode-java-ibatisx"
       ],
       "Profile 20 - Python": [

@@ -254,14 +254,6 @@
       "sha256": "030709ac28ca8e5062e4c7026ebd0c188062de02109f89ad72ae5e2bce58ca54"
     },
     {
-      "id": "vscjava.vscode-spring-initializr",
-      "version": "0.12.0",
-      "engine": "^1.75.0",
-      "target_platform": "universal",
-      "download_url": "https://vscjava.gallerycdn.vsassets.io/extensions/vscjava/vscode-spring-initializr/0.12.0/1763086464475/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ab6fbef42d35a24ab9a4576628a737652af41b85d301c86912604ca999b7abb6"
-    },
-    {
       "id": "yangbaopan.vscode-java-ibatisx",
       "version": "2024.12.9",
       "engine": "^1.77.0",
