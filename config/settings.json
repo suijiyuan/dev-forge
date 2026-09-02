@@ -3,6 +3,7 @@
     "editor.unicodeHighlight.allowedLocales": {
         "zh-hans": true
     },
+    "editor.unicodeHighlight.nonBasicASCII": false,
     "editor.wordWrap": "on",
     "explorer.confirmDelete": false,
     "explorer.confirmDragAndDrop": false,
