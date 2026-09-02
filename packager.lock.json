@@ -15,11 +15,11 @@
     },
     {
       "id": "eamodio.gitlens",
-      "version": "19.0.1",
+      "version": "19.1.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.0.1/1786596317535/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "e94ea831b059cb3bfda346b94e9c9826a6dd8eb9da54edc170f618a6c866ff60"
+      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.1.0/1788286258582/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "f89e5653ba9f57ffc8f32a8771f5ad9e9622d090ab39bdcfd8c15625cac568ce"
     },
     {
       "id": "editorconfig.editorconfig",
@@ -263,11 +263,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.74.0",
+      "version": "2026.76.0",
       "engine": "^1.75.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.74.0/1787261581338/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "4b93949fdf550280136c50f1efb9084f2f1eed2a9cd7733b109b983eb45f57f7"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.76.0/1788203615044/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "ae779f25ed59e9b2ea71d7b530101936a311ec5d570abb11c91dff98779bad1a"
     },
     {
       "id": "ms-python.debugpy",
