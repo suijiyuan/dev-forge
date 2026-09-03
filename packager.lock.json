@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.135.0",
+    "vscode_version": "1.136.0",
     "arch": "x64"
   },
   "extensions": [
