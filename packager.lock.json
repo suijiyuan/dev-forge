@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.136.0",
+    "vscode_version": "1.136.1",
     "arch": "x64"
   },
   "extensions": [
@@ -167,11 +167,11 @@
     },
     {
       "id": "redhat.java",
-      "version": "1.55.0",
+      "version": "1.56.0",
       "engine": "^1.77.0",
       "target_platform": "win32-x64",
-      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/java/1.55.0/1782398672544/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "e28a23fb6b87317d9a96bc2c4ebebd696df44b8601e0cee61b245ba384170287"
+      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/java/1.56.0/1788438402953/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "ed28f022c053f2bad1e516a81c0c7185a7e3aafa08707acd42b45e53e3a692c4"
     },
     {
       "id": "vmware.vscode-boot-dev-pack",
@@ -263,11 +263,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.76.0",
+      "version": "2026.78.0",
       "engine": "^1.75.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.76.0/1788203615044/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ae779f25ed59e9b2ea71d7b530101936a311ec5d570abb11c91dff98779bad1a"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.78.0/1788459440677/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "fa299e23b1bf1cee800f7729f7352dea4f3293e3ea25727f7851e60d61a77cee"
     },
     {
       "id": "ms-python.debugpy",
