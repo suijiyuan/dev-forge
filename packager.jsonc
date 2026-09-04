@@ -27,7 +27,6 @@
   // 每个扩展 ID 必须使用 "publisher.name" 格式。
   "extensions": {
     "default": [
-      "davidanson.vscode-markdownlint",
       "eamodio.gitlens",
       "editorconfig.editorconfig",
       "esbenp.prettier-vscode",

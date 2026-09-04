@@ -6,14 +6,6 @@
   },
   "extensions": [
     {
-      "id": "davidanson.vscode-markdownlint",
-      "version": "0.62.1",
-      "engine": "^1.97.0",
-      "target_platform": "universal",
-      "download_url": "https://DavidAnson.gallerycdn.vsassets.io/extensions/davidanson/vscode-markdownlint/0.62.1/1785712567757/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "cd1d295a9c564d3c5e0047d7e3dbe585a4cf736619c5c242bfad9a6eb88fb518"
-    },
-    {
       "id": "eamodio.gitlens",
       "version": "19.1.0",
       "engine": "^1.101.0",
