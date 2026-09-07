@@ -62,6 +62,14 @@
       "sha256": "0d2cd9f70181d0854af2060eccb2db4f4dd65f7c52991fc85156640f371ccca7"
     },
     {
+      "id": "mkhl.shfmt",
+      "version": "1.5.2",
+      "engine": "^1.103.0",
+      "target_platform": "universal",
+      "download_url": "https://mkhl.gallerycdn.vsassets.io/extensions/mkhl/shfmt/1.5.2/1776323376682/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "31f7f7669c672e9fdc101d7b4f42866781961bc8cde15c6b7d1ff02048b6a2e3"
+    },
+    {
       "id": "ms-vscode-remote.remote-ssh",
       "version": "0.128.0",
       "engine": "^1.133.0",

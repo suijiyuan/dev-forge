@@ -34,6 +34,7 @@
       "formulahendry.auto-complete-tag",
       "formulahendry.auto-rename-tag",
       "humao.rest-client",
+      "mkhl.shfmt",
       "ms-vscode-remote.remote-ssh",
       "ms-vscode-remote.remote-ssh-edit",
       "ms-vscode.remote-explorer",
