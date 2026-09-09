@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.136.1",
+    "vscode_version": "1.136.2",
     "arch": "x64"
   },
   "extensions": [
@@ -159,11 +159,11 @@
     },
     {
       "id": "ms-vscode-remote.remote-containers",
-      "version": "0.466.0",
+      "version": "0.469.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-containers/0.466.0/1784106332362/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "b362ace6f847f6aec8a348e64d5190f637dfcbad7c5b9593d61821402aa83f93"
+      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-containers/0.469.0/1788883066176/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "92f99095acd2f99bae6f1ebb6fc92fcb83fc5376f9590a9177f182c56fb482c2"
     },
     {
       "id": "redhat.java",
@@ -183,11 +183,11 @@
     },
     {
       "id": "vmware.vscode-spring-boot",
-      "version": "2.3.0",
+      "version": "2.4.0",
       "engine": "^1.92.0",
       "target_platform": "universal",
-      "download_url": "https://vmware.gallerycdn.vsassets.io/extensions/vmware/vscode-spring-boot/2.3.0/1785340687972/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "8e555da123e5b4edb7449d3ef1f922a922503e64a86cd66cbe713638f94a9e50"
+      "download_url": "https://vmware.gallerycdn.vsassets.io/extensions/vmware/vscode-spring-boot/2.4.0/1788813603129/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "7743e50a9028a6c1ba8f82986576a95c613dd6222650f8e9795ecf7a1aaebb79"
     },
     {
       "id": "vscjava.vscode-gradle",
