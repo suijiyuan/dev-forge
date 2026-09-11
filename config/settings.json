@@ -17,6 +17,7 @@
     "java.configuration.maven.globalSettings": "",
     "java.configuration.runtimes": [],
     "java.jdt.ls.java.home": "",
+    "java.jdt.ls.vmargs": "-Xms1G -Xmx4G -XX:+UseG1GC -XX:+UseStringDeduplication",
     "maven-helper.log.debug": false,
     "maven-helper.maven.useNativeDependencyTree": true,
     "npm.packageManager": "npm",
