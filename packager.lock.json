@@ -1,17 +1,17 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.137.0",
+    "vscode_version": "1.138.0",
     "arch": "x64"
   },
   "extensions": [
     {
       "id": "eamodio.gitlens",
-      "version": "19.1.0",
+      "version": "19.2.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.1.0/1788286258582/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "f89e5653ba9f57ffc8f32a8771f5ad9e9622d090ab39bdcfd8c15625cac568ce"
+      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.2.0/1789575762764/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "7db185976972080691ac91e6ea8bc91bb9f3f1df66aeeb1a5602dd2fcdde58dd"
     },
     {
       "id": "editorconfig.editorconfig",
@@ -143,11 +143,11 @@
     },
     {
       "id": "ms-azuretools.vscode-containers",
-      "version": "2.5.0",
-      "engine": "^1.105.0",
+      "version": "2.5.1",
+      "engine": "^1.109.0",
       "target_platform": "universal",
-      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.5.0/1787591077390/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "358608db0e4df0f10f78570ed4f1ed0fa8629cae916fa531e8eb7c398c58c9d5"
+      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.5.1/1789488046898/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "1474bddc708a1c5ce57912093fea71a5d4d9663a819193a31e5989e4cd288dbb"
     },
     {
       "id": "ms-azuretools.vscode-docker",
@@ -271,11 +271,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.80.0",
+      "version": "2026.82.0",
       "engine": "^1.75.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.80.0/1789065441439/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ac867d35e797a87b92b0b0293b0351568bd8c39f600f2dcf57c3ef6e2c862185"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.82.0/1789576522174/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "ac46ec744f857882e73d754fab693845ba3e8070c330a4babfc6a15c5c29a54e"
     },
     {
       "id": "ms-python.debugpy",
