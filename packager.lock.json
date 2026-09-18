@@ -374,14 +374,6 @@
       "sha256": "6c4df6566cd906c02a812c5d4002bd3a84dc4e0bad184b60bf0ebe45a89ea91b"
     },
     {
-      "id": "dbaeumer.vscode-eslint",
-      "version": "3.0.34",
-      "engine": "^1.90.0",
-      "target_platform": "universal",
-      "download_url": "https://dbaeumer.gallerycdn.vsassets.io/extensions/dbaeumer/vscode-eslint/3.0.34/1784203161508/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ca708f1739dee184b858d8d04a61a4cbe7b621a13748bc63e859232b22cf700b"
-    },
-    {
       "id": "octref.vetur",
       "version": "0.37.3",
       "engine": "^1.52.0",

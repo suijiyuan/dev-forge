@@ -85,13 +85,11 @@
       "Profile 40 - Vue 2": [
         "christian-kohler.npm-intellisense",
         "christian-kohler.path-intellisense",
-        "dbaeumer.vscode-eslint",
         "octref.vetur"
       ],
       "Profile 50 - Vue 3": [
         "christian-kohler.npm-intellisense",
         "christian-kohler.path-intellisense",
-        "dbaeumer.vscode-eslint",
         "vue.volar"
       ]
     }
