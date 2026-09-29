@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.138.0",
+    "vscode_version": "1.139.1",
     "arch": "x64"
   },
   "extensions": [
@@ -127,11 +127,11 @@
     },
     {
       "id": "usernamehw.errorlens",
-      "version": "3.28.0",
+      "version": "3.29.0",
       "engine": "^1.107.0",
       "target_platform": "universal",
-      "download_url": "https://usernamehw.gallerycdn.vsassets.io/extensions/usernamehw/errorlens/3.28.0/1769671423981/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "edebbbcbd211d6ec52159d08a650e2785b778966dc99dc1fd6501c5eaf92e02f"
+      "download_url": "https://usernamehw.gallerycdn.vsassets.io/extensions/usernamehw/errorlens/3.29.0/1790436149293/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "90af40c69dad314199ff4e15b4be61ce0df9cef9d12231e99e6089b7d3a11d0f"
     },
     {
       "id": "hendiaome.vscode-maven-helper",
@@ -143,11 +143,11 @@
     },
     {
       "id": "ms-azuretools.vscode-containers",
-      "version": "2.5.1",
+      "version": "2.5.2",
       "engine": "^1.109.0",
       "target_platform": "universal",
-      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.5.1/1789488046898/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "1474bddc708a1c5ce57912093fea71a5d4d9663a819193a31e5989e4cd288dbb"
+      "download_url": "https://ms-azuretools.gallerycdn.vsassets.io/extensions/ms-azuretools/vscode-containers/2.5.2/1790169207298/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "111a7020ec4b6717a558f445630b1a11c6e73b15b7702def18e288920f76cedc"
     },
     {
       "id": "ms-azuretools.vscode-docker",
@@ -271,11 +271,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.82.0",
+      "version": "2026.84.0",
       "engine": "^1.75.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.82.0/1789576522174/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ac46ec744f857882e73d754fab693845ba3e8070c330a4babfc6a15c5c29a54e"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.84.0/1790284611616/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "6dc09859dcdfd5adda5a7788cd9bcfc09561f2d9b49a41327ce0922a692f65fe"
     },
     {
       "id": "ms-python.debugpy",
@@ -295,19 +295,19 @@
     },
     {
       "id": "ms-python.vscode-pylance",
-      "version": "2026.3.1",
+      "version": "2026.4.1",
       "engine": "^1.107.0",
       "target_platform": "universal",
-      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-pylance/2026.3.1/1784661006973/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "265d5f980b5ce303d5d1c504f276c865d3abd4a93ca661d4aba6424fa93493ae"
+      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-pylance/2026.4.1/1790193667864/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "3e6c9d0ba0c6680e6ef28d1af5c6e13844e39a871e5404cbfaaaedb5cd0d8cfb"
     },
     {
       "id": "ms-python.vscode-python-envs",
-      "version": "1.36.0",
+      "version": "1.38.0",
       "engine": "^1.110.0-20260204",
       "target_platform": "win32-x64",
-      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-python-envs/1.36.0/1781815450169/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "83925c492a3dc300d47c6aadc29d6550d1262e85db3b04c7fe0cefdbcdd6b817"
+      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-python-envs/1.38.0/1790283715464/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "e22864fa118c8eff077271bd21513ec5504d4fb409590ead295510870f63caf8"
     },
     {
       "id": "ms-toolsai.jupyter",
