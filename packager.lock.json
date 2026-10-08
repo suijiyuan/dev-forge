@@ -1,17 +1,17 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.139.1",
+    "vscode_version": "1.141.0",
     "arch": "x64"
   },
   "extensions": [
     {
       "id": "eamodio.gitlens",
-      "version": "19.2.0",
+      "version": "19.3.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.2.0/1789575762764/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "7db185976972080691ac91e6ea8bc91bb9f3f1df66aeeb1a5602dd2fcdde58dd"
+      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.3.0/1790879051457/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "8ee8f6a5fa49435f27059a6c65a4b05e5228ba490f1f704d4cf6e257413f6fcb"
     },
     {
       "id": "editorconfig.editorconfig",
@@ -287,11 +287,11 @@
     },
     {
       "id": "ms-python.python",
-      "version": "2026.4.0",
+      "version": "2026.8.0",
       "engine": "^1.95.0",
       "target_platform": "win32-x64",
-      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.4.0/1773338186643/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "c877195e39d5fe88fc8416efbf3b2c5dbd576000bf624dc22821fc26fa112079"
+      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/python/2026.8.0/1791325685571/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "b4d268561318307a4a411d4842db69728fb27f15270a9bd7f581b8bb91f64734"
     },
     {
       "id": "ms-python.vscode-pylance",
@@ -383,11 +383,11 @@
     },
     {
       "id": "vue.volar",
-      "version": "3.3.11",
+      "version": "3.3.12",
       "engine": "^1.88.0",
       "target_platform": "universal",
-      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.11/1787306786187/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "c1d10ba0ce9cce7d25ae4f46766061e79c54297117bb9a647da89126f174e9ec"
+      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.12/1790933219456/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "21840d3c914638c1df7c3a202d9e55b585b0e7687acd13eddd82fe7ef82d5eb4"
     }
   ]
 }
