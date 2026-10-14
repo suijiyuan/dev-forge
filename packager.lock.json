@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.141.0",
+    "vscode_version": "1.141.1",
     "arch": "x64"
   },
   "extensions": [
@@ -103,11 +103,11 @@
     },
     {
       "id": "redhat.vscode-yaml",
-      "version": "1.24.0",
-      "engine": "^1.63.0",
+      "version": "1.25.0",
+      "engine": "^1.90.0",
       "target_platform": "universal",
-      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/vscode-yaml/1.24.0/1783456655847/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "0668758312a7fa6beda259ca5a6849d90c5d519df6415edbe246c135e06d7168"
+      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/vscode-yaml/1.25.0/1791576701250/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "2a833480d9754d83afb64df758c50735201d759b53cdb29be7b7a8114dca2ae4"
     },
     {
       "id": "streetsidesoftware.code-spell-checker",
@@ -167,11 +167,11 @@
     },
     {
       "id": "redhat.java",
-      "version": "1.56.0",
+      "version": "1.57.0",
       "engine": "^1.77.0",
       "target_platform": "win32-x64",
-      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/java/1.56.0/1788438402953/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ed28f022c053f2bad1e516a81c0c7185a7e3aafa08707acd42b45e53e3a692c4"
+      "download_url": "https://redhat.gallerycdn.vsassets.io/extensions/redhat/java/1.57.0/1791897801306/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "505891f35b329dc3c271a46374facad8b0c9a76b71b18612bc5ab67353045d32"
     },
     {
       "id": "vmware.vscode-boot-dev-pack",
@@ -239,11 +239,11 @@
     },
     {
       "id": "vscjava.vscode-maven",
-      "version": "0.45.3",
+      "version": "0.46.0",
       "engine": "^1.75.0",
       "target_platform": "universal",
-      "download_url": "https://vscjava.gallerycdn.vsassets.io/extensions/vscjava/vscode-maven/0.45.3/1777016365028/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "2d1d2f7d0e4ff35b8824fa18d02ba27b28e378f330268ef94c3302a59c22f348"
+      "download_url": "https://vscjava.gallerycdn.vsassets.io/extensions/vscjava/vscode-maven/0.46.0/1791434800298/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "ba2b5273bf0e8ea936b54fdf28a73a31da0718467b7194374da78213b23f66f0"
     },
     {
       "id": "vscjava.vscode-spring-boot-dashboard",
@@ -271,11 +271,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.84.0",
-      "engine": "^1.75.0",
+      "version": "2026.86.0",
+      "engine": "^1.91.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.84.0/1790284611616/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "6dc09859dcdfd5adda5a7788cd9bcfc09561f2d9b49a41327ce0922a692f65fe"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.86.0/1791578443537/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "c333a1c3bd7cea1e55fb37a9251a2844a1563cb1000acd5c8cb2cb6b5aa58568"
     },
     {
       "id": "ms-python.debugpy",
@@ -383,11 +383,11 @@
     },
     {
       "id": "vue.volar",
-      "version": "3.3.12",
+      "version": "3.3.13",
       "engine": "^1.88.0",
       "target_platform": "universal",
-      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.12/1790933219456/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "21840d3c914638c1df7c3a202d9e55b585b0e7687acd13eddd82fe7ef82d5eb4"
+      "download_url": "https://Vue.gallerycdn.vsassets.io/extensions/vue/volar/3.3.13/1791642710283/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "939a170314ab794816e00e917dd7ed29aa2c448dc9c82d23a71260dd92bebfa0"
     }
   ]
 }
