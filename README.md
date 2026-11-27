@@ -29,6 +29,9 @@ dev-forge --config packager.jsonc --locked
 
 # 修改 VS Code 版本或扩展列表后，重新解析并更新锁文件
 dev-forge --config packager.jsonc --update-lock
+
+# 自动检查 VS Code 最新正式版与扩展更新，仅更新 packager.jsonc 和锁文件（不构建压缩包）
+dev-forge --config packager.jsonc --auto-update
 ```
 
 不希望安装命令行入口时，也可以直接指定源码目录运行：
@@ -92,6 +95,20 @@ git push origin v1.133.0.20260819.3
 工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`，无需配置个人访问令牌。也可以在仓库的
 Actions 页面手动运行该工作流，并输入一个已经推送到 GitHub 的标签；这适合重试尚未成功
 创建 Release 的构建。
+
+### 定期全自动检查与发包
+
+仓库中的 `.github/workflows/auto-update.yml` 会每天北京时间 `09:00`（`UTC 01:00`）自动执行以下流程（也可在 Actions 页面手动触发）：
+
+1. 检查微软官方最新 VS Code 稳定版本，并校验对应 Windows 安装包是否已可下载；
+2. 结合 `packager.jsonc` 中的扩展清单，查询 Marketplace 最新兼容稳定版本；
+3. 当 VS Code 有新正式版本，或任意扩展有新版本时：
+   - 下载并校验全部扩展 VSIX，原子更新 `packager.lock.json`；
+   - 若 VS Code 版本有升级，保留原有注释与格式更新 `packager.jsonc` 中的 `vscode.version`；
+   - 运行单元测试与配置校验；
+   - 自动提交变更到 `master`，生成 `v<version>.<YYYYMMDD>.<序号>` 标签并推送；
+   - 自动调用 `.github/workflows/release.yml` 构建离线压缩包并发布 GitHub Release。
+4. 若 VS Code 与所有扩展均无更新，则直接结束，不产生提交或 Release。
 
 仓库已提供 `config/` 作为 GitHub Actions 和本地打包共用的配置源。直接编辑其中的
 `settings.json`、`keybindings.json`、`tasks.json`、`mcp.json`，或在 `snippets/` 中增删

@@ -19,8 +19,8 @@ from .marketplace import download_file, query_extension, sha256_file, validate_v
 from .models import XML_CATALOG_SETTING_TOKEN, Config, ExtensionRelease, PackagerError
 
 
-def vscode_download(version: str, package: str, arch: str) -> tuple[str, str]:
-    platform_name = {
+def vscode_platform(package: str, arch: str) -> str:
+    return {
         ("system", "x64"): "win32-x64",
         ("user", "x64"): "win32-x64-user",
         ("archive", "x64"): "win32-x64-archive",
@@ -28,6 +28,10 @@ def vscode_download(version: str, package: str, arch: str) -> tuple[str, str]:
         ("user", "arm64"): "win32-arm64-user",
         ("archive", "arm64"): "win32-arm64-archive",
     }[(package, arch)]
+
+
+def vscode_download(version: str, package: str, arch: str) -> tuple[str, str]:
+    platform_name = vscode_platform(package, arch)
     suffix = ".zip" if package == "archive" else ".exe"
     label = (
         "VSCode"
@@ -128,6 +132,19 @@ def _copy_resource(source: Path, target: Path, root: Path) -> dict[str, Any]:
     }
 
 
+def collect_extension_ids(config: Config) -> list[str]:
+    return list(
+        dict.fromkeys(
+            config.extensions
+            + tuple(
+                extension_id
+                for _, profile_extensions in config.extension_profiles
+                for extension_id in profile_extensions
+            )
+        )
+    )
+
+
 def build_bundle(
     config: Config,
     archive_only: bool = False,
@@ -165,16 +182,7 @@ def build_bundle(
         vscode_hash = downloader(vscode_url, vscode_path)
 
         extension_entries = []
-        all_extensions = list(
-            dict.fromkeys(
-                config.extensions
-                + tuple(
-                    extension_id
-                    for _, profile_extensions in config.extension_profiles
-                    for extension_id in profile_extensions
-                )
-            )
-        )
+        all_extensions = collect_extension_ids(config)
         if update_lock and lock_file is None:
             raise PackagerError("update_lock 需要指定 lock_file")
         if locked and lock_file is None:

@@ -10,12 +10,18 @@ on:
         description: "Existing Git tag to build and publish (for example: v1.133.0.xxxxxxxx.x)"
         required: true
         type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: "Git tag to build and publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -24,14 +30,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
       PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
       - name: Check out release tag
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'push' && github.ref || inputs.tag }}
 
       - name: Set up Python
         uses: actions/setup-python@v6

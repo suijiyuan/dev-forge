@@ -1,0 +1,115 @@
+name: Auto Update & Release
+
+on:
+  schedule:
+    # 每天北京时间 09:00（UTC 01:00）自动检查更新
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      check_vscode:
+        description: "Check for a newer stable VS Code version"
+        required: false
+        default: true
+        type: boolean
+      dry_run:
+        description: "Check updates without committing, tagging, or releasing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Check VS Code and extensions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      tag: ${{ steps.publish.outputs.tag }}
+
+    steps:
+      - name: Check out master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Dev Forge
+        run: python -m pip install -e .
+
+      - name: Check and apply updates
+        id: check
+        shell: bash
+        env:
+          CHECK_VSCODE: ${{ github.event_name == 'workflow_dispatch' && inputs.check_vscode == false && 'false' || 'true' }}
+        run: |
+          args=(--config packager.jsonc --auto-update --github-output "$GITHUB_OUTPUT")
+          if [[ "$CHECK_VSCODE" == "false" ]]; then
+            args+=(--no-vscode-update)
+          fi
+          dev-forge "${args[@]}"
+
+      - name: Run tests and validate configuration
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          python -m unittest discover -s src/tests -v
+          python -c 'from pathlib import Path; from dev_forge.core import collect_extension_ids, load_config, load_extension_lock; c=load_config(Path("packager.jsonc").resolve()); load_extension_lock(Path("packager.lock.json"), c.version, c.arch, collect_extension_ids(c))'
+
+      - name: Commit, push to master, and create tag
+        id: publish
+        if: steps.check.outputs.changed == 'true' && inputs.dry_run != true
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ steps.check.outputs.target_version }}
+          COMMIT_MESSAGE: ${{ steps.check.outputs.commit_message }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain -- packager.jsonc packager.lock.json)" ]]; then
+            echo "No git changes detected in packager.jsonc or packager.lock.json." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add packager.jsonc packager.lock.json
+          git commit -m "$COMMIT_MESSAGE"
+          git push origin HEAD:master
+
+          today="$(TZ=Asia/Shanghai date +%Y%m%d)"
+          prefix="v${TARGET_VERSION}.${today}."
+          max_seq=0
+          while IFS= read -r existing_tag; do
+            seq="${existing_tag#"$prefix"}"
+            if [[ "$seq" =~ ^[0-9]+$ ]] && (( seq > max_seq )); then
+              max_seq="$seq"
+            fi
+          done < <(git tag -l "${prefix}*")
+
+          next_tag="${prefix}$((max_seq + 1))"
+          git tag "$next_tag"
+          git push origin "$next_tag"
+          echo "tag=${next_tag}" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Build ZIP and publish GitHub Release
+    needs: update
+    if: needs.update.outputs.changed == 'true' && inputs.dry_run != true
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.update.outputs.tag }}
