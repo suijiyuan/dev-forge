@@ -72,7 +72,17 @@ dev-forge-1.95.3-win32-x64/
 
 ## 通过 GitHub Actions 自动发布
 
-仓库中的 `.github/workflows/release.yml` 会在推送 `v*` 标签时自动完成以下工作：
+仓库包含以下三个工作流：
+
+| 工作流 | 文件 | 触发方式 | 执行内容 |
+| --- | --- | --- | --- |
+| CI | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 推送到 `master` 或创建、更新 PR | Python 3.10–3.13 测试、配置和锁文件校验，以及 Windows PowerShell 语法校验 |
+| Auto | [`.github/workflows/auto.yml`](.github/workflows/auto.yml) | 每天北京时间 `08:00`（`UTC 00:00`）或手动运行 | 检查更新，有变化时校验、提交、打标签并调用 Release |
+| Release | [`.github/workflows/release.yml`](.github/workflows/release.yml) | 推送 `v*` 标签、手动指定标签，或由 Auto 调用 | 按标签运行测试、构建 ZIP 并发布 GitHub Release |
+
+### 按标签发布
+
+Release 工作流会完成以下工作：
 
 1. 检出标签对应的代码；
 2. 使用 Python 3.13 安装 Dev Forge 并运行测试；
@@ -93,22 +103,39 @@ git push origin v1.133.0.20260819.3
 ```
 
 工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`，无需配置个人访问令牌。也可以在仓库的
-Actions 页面手动运行该工作流，并输入一个已经推送到 GitHub 的标签；这适合重试尚未成功
-创建 Release 的构建。
+Actions 页面选择 **Release → Run workflow**，输入一个已经推送到 GitHub 的标签；
+这适合重试尚未成功创建 Release 的构建。当前发布步骤不处理同名 Release 已存在的情况。
+Release 会执行自己的 Python 3.13 单元测试，但不会等待独立 CI 工作流完成。
 
 ### 定期全自动检查与发包
 
-仓库中的 `.github/workflows/auto-update.yml` 会每天北京时间 `09:00`（`UTC 01:00`）自动执行以下流程（也可在 Actions 页面手动触发）：
+Auto 工作流始终检出 `master`，每天北京时间 `08:00`（`UTC 00:00`）自动执行以下流程
+（也可在 Actions 页面选择 **Auto → Run workflow** 手动触发）：
 
 1. 检查微软官方最新 VS Code 稳定版本，并校验对应 Windows 安装包是否已可下载；
 2. 结合 `packager.jsonc` 中的扩展清单，查询 Marketplace 最新兼容稳定版本；
 3. 当 VS Code 有新正式版本，或任意扩展有新版本时：
    - 下载并校验全部扩展 VSIX，原子更新 `packager.lock.json`；
    - 若 VS Code 版本有升级，保留原有注释与格式更新 `packager.jsonc` 中的 `vscode.version`；
-   - 运行单元测试与配置校验；
+   - 使用 Python 3.13 运行单元测试，并校验配置和锁文件；
    - 自动提交变更到 `master`，生成 `v<version>.<YYYYMMDD>.<序号>` 标签并推送；
    - 自动调用 `.github/workflows/release.yml` 构建离线压缩包并发布 GitHub Release。
 4. 若 VS Code 与所有扩展均无更新，则直接结束，不产生提交或 Release。
+
+手动运行 Auto 时支持以下参数：
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `check_vscode` | `true` | 设为 `false` 时保留当前 VS Code 版本，仅检查兼容扩展更新 |
+| `dry_run` | `false` | 设为 `true` 时仍在 runner 中更新配置和锁文件、有变化时执行校验，但不提交、不打标签、不发布 |
+
+Auto 使用 `GITHUB_TOKEN` 推送提交和标签，[这类推送不会触发新的 `push` 工作流](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)。
+因此自动更新不会触发独立的 CI，也不会通过标签推送重复触发 Release；发布由 Auto 中的
+`release` job 通过 `workflow_call` 显式调用。自动更新链路执行 Python 3.13 测试和配置/锁文件校验，
+不包含 CI 中的 Python 3.10–3.12 测试及 Windows PowerShell 语法校验。
+
+若提交或标签已经推送，但后续发包失败，再次运行 Auto 且未检测到更新时不会自动补发。
+已有标签时可手动运行 Release 并指定该标签；如果只有提交成功、标签尚未推送，则需先补建并推送标签。
 
 仓库已提供 `config/` 作为 GitHub Actions 和本地打包共用的配置源。直接编辑其中的
 `settings.json`、`keybindings.json`、`tasks.json`、`mcp.json`，或在 `snippets/` 中增删
@@ -551,7 +578,9 @@ dev-forge [-h]
           [--output-dir OUTPUT_DIR]
           [--archive-only]
           [--lock-file LOCK_FILE]
-          [--update-lock | --no-lock | --locked]
+          [--update-lock | --no-lock | --locked | --auto-update]
+          [--no-vscode-update]
+          [--github-output GITHUB_OUTPUT]
 ```
 
 | 参数 | 是否需要值 | 默认值 | 说明 |
@@ -565,6 +594,9 @@ dev-forge [-h]
 | `--update-lock` | 否 | 关闭 | 查询 Marketplace 并用当前最新兼容版本重写锁文件 |
 | `--locked` | 否 | 关闭 | 锁文件不存在或与版本、架构、扩展集合不一致时立即失败 |
 | `--no-lock` | 否 | 关闭 | 显式使用非可复现的动态解析模式 |
+| `--auto-update` | 否 | 关闭 | 检查 VS Code 稳定版和兼容扩展更新，仅更新配置及锁文件，不构建压缩包 |
+| `--no-vscode-update` | 否 | 关闭 | 配合 `--auto-update` 使用，保留当前 VS Code 版本，仅检查兼容扩展更新 |
+| `--github-output` | 是 | 不写入 | 配合 `--auto-update` 使用，将更新结果追加到指定的 GitHub Actions 输出文件 |
 
 命令行没有提供 `version`、`package`、`arch` 或 `extensions` 的覆盖参数，这些项目需要在
 JSON 配置文件中修改。
@@ -676,9 +708,11 @@ Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-
 python3 -m unittest discover -s src/tests -v
 ```
 
-GitHub Actions 会在 Linux 上使用 Python 3.10–3.13 运行测试并校验已提交的配置/锁文件，
-还会在 Windows PowerShell 上渲染并解析生成的 `install.ps1`。这些静态和单元测试不等同于
-真实 Windows 离线安装；发布前仍应在目标机执行安装验收。
+CI 工作流在推送到 `master` 或创建、更新 PR 时，在 Linux 上使用 Python 3.10–3.13
+运行测试并校验已提交的配置/锁文件，还会在 Windows PowerShell 上渲染并解析生成的
+`install.ps1`。Auto 的机器人推送不会触发这套完整 CI；Auto 和 Release 各自执行
+Python 3.13 单元测试。这些静态和单元测试不等同于真实 Windows 离线安装；发布前仍应
+在目标机执行安装验收。
 
 Marketplace 接口不需要令牌。元数据查询和文件下载都会指数退避重试三次；
 下载先写入 `.part` 文件，完成后再原子替换。下载后还会验证 VSIX ZIP 结构及
