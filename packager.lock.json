@@ -1,17 +1,17 @@
 {
   "schema_version": 2,
   "target": {
-    "vscode_version": "1.145.2",
+    "vscode_version": "1.147.0",
     "arch": "x64"
   },
   "extensions": [
     {
       "id": "eamodio.gitlens",
-      "version": "19.5.0",
+      "version": "19.7.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.5.0/1793132062238/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ac512e366b9e3a372edf9a6493d61bb0c916b5f9f7c4170f99bb03ed25a58a8a"
+      "download_url": "https://eamodio.gallerycdn.vsassets.io/extensions/eamodio/gitlens/19.7.0/1795553434022/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "64fde16809dd66e2a02cebc82f556ed5e2f6e85b724a89f2b1ec9e146d7db3db"
     },
     {
       "id": "editorconfig.editorconfig",
@@ -159,11 +159,11 @@
     },
     {
       "id": "ms-vscode-remote.remote-containers",
-      "version": "0.469.0",
+      "version": "0.481.0",
       "engine": "^1.101.0",
       "target_platform": "universal",
-      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-containers/0.469.0/1788883066176/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "92f99095acd2f99bae6f1ebb6fc92fcb83fc5376f9590a9177f182c56fb482c2"
+      "download_url": "https://ms-vscode-remote.gallerycdn.vsassets.io/extensions/ms-vscode-remote/remote-containers/0.481.0/1795609532798/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "7e616354b8237b14101aae117195cf69f9995ae93cc2f5a95dc14eef1c903e9d"
     },
     {
       "id": "redhat.java",
@@ -191,11 +191,11 @@
     },
     {
       "id": "vscjava.vscode-gradle",
-      "version": "3.18.1",
+      "version": "3.19.0",
       "engine": "^1.76.0",
       "target_platform": "universal",
-      "download_url": "https://vscjava.gallerycdn.vsassets.io/extensions/vscjava/vscode-gradle/3.18.1/1792055783865/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "4bbb9445cdeae5ab5e84e8b633a04381fe6894e886e6c027c53a1009bdd6b4ed"
+      "download_url": "https://vscjava.gallerycdn.vsassets.io/extensions/vscjava/vscode-gradle/3.19.0/1794363827718/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "0389b42fbbd705fec97bbda7becdadad099f56af5da1573079ac686472e7387f"
     },
     {
       "id": "vscjava.vscode-java-debug",
@@ -271,11 +271,11 @@
     },
     {
       "id": "charliermarsh.ruff",
-      "version": "2026.94.0",
+      "version": "2026.98.0",
       "engine": "^1.91.0",
       "target_platform": "win32-x64",
-      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.94.0/1793910618011/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "e8b4852b9b9a1347e51459f768e6de0689198a8a4a74129fd7020899c63fb014"
+      "download_url": "https://charliermarsh.gallerycdn.vsassets.io/extensions/charliermarsh/ruff/2026.98.0/1795105325032/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "30fe246ccd53820c09921fdfba99bd08642fc6691e7d533b85ef7e0df0132ece"
     },
     {
       "id": "ms-python.debugpy",
@@ -303,11 +303,11 @@
     },
     {
       "id": "ms-python.vscode-python-envs",
-      "version": "1.42.0",
+      "version": "1.44.0",
       "engine": "^1.110.0-20260204",
       "target_platform": "win32-x64",
-      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-python-envs/1.42.0/1793833153427/Microsoft.VisualStudio.Services.VSIXPackage",
-      "sha256": "ce79778a60dfd83892cbd572f5e23f2919e66e6cdaf6880ba2970604a4d7fa98"
+      "download_url": "https://ms-python.gallerycdn.vsassets.io/extensions/ms-python/vscode-python-envs/1.44.0/1794865179791/Microsoft.VisualStudio.Services.VSIXPackage",
+      "sha256": "b656e82bf9db409144ba65e52e0c6dba58743a9010d6fbe97b717357d5751564"
     },
     {
       "id": "ms-toolsai.jupyter",
