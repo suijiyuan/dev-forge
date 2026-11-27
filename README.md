@@ -76,8 +76,8 @@ dev-forge-1.95.3-win32-x64/
 
 | 工作流 | 文件 | 触发方式 | 执行内容 |
 | --- | --- | --- | --- |
-| CI | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 推送到 `master` 或创建、更新 PR | Python 3.10–3.13 测试、配置和锁文件校验，以及 Windows PowerShell 语法校验 |
-| Auto | [`.github/workflows/auto.yml`](.github/workflows/auto.yml) | 每天北京时间 `08:00`（`UTC 00:00`）或手动运行 | 检查更新，有变化时校验、提交、打标签并调用 Release |
+| CI | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 推送到 `master`、创建或更新 PR，或由 Auto 调用 | Python 3.10–3.13 测试、配置和锁文件校验，以及 Windows PowerShell 语法校验 |
+| Auto | [`.github/workflows/auto.yml`](.github/workflows/auto.yml) | 每天北京时间 `08:00`（`UTC 00:00`）或手动运行 | 检查更新，有变化时校验、提交，通过完整 CI 后打标签并调用 Release |
 | Release | [`.github/workflows/release.yml`](.github/workflows/release.yml) | 推送 `v*` 标签、手动指定标签，或由 Auto 调用 | 按标签运行测试、构建 ZIP 并发布 GitHub Release |
 
 ### 按标签发布
@@ -105,7 +105,8 @@ git push origin v1.133.0.20260819.3
 工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`，无需配置个人访问令牌。也可以在仓库的
 Actions 页面选择 **Release → Run workflow**，输入一个已经推送到 GitHub 的标签；
 这适合重试尚未成功创建 Release 的构建。当前发布步骤不处理同名 Release 已存在的情况。
-Release 会执行自己的 Python 3.13 单元测试，但不会等待独立 CI 工作流完成。
+Release 会执行自己的 Python 3.13 单元测试。人工标签发布和手动运行 Release 不会等待独立 CI
+工作流完成；由 Auto 发起的发布则必须先通过 Auto 调用的完整 CI。
 
 ### 定期全自动检查与发包
 
@@ -118,7 +119,9 @@ Auto 工作流始终检出 `master`，每天北京时间 `08:00`（`UTC 00:00`�
    - 下载并校验全部扩展 VSIX，原子更新 `packager.lock.json`；
    - 若 VS Code 版本有升级，保留原有注释与格式更新 `packager.jsonc` 中的 `vscode.version`；
    - 使用 Python 3.13 运行单元测试，并校验配置和锁文件；
-   - 自动提交变更到 `master`，生成 `v<version>.<YYYYMMDD>.<序号>` 标签并推送；
+   - 自动提交变更并推送到 `master`，记录该次提交的 SHA；
+   - 通过 `workflow_call` 调用 `.github/workflows/ci.yml`，按该 SHA 执行 Linux Python 3.10–3.13 测试、配置和锁文件校验，以及 Windows PowerShell 语法校验；
+   - 完整 CI 全部成功后，为同一提交生成 `v<version>.<YYYYMMDD>.<序号>` 标签并推送；
    - 自动调用 `.github/workflows/release.yml` 构建离线压缩包并发布 GitHub Release。
 4. 若 VS Code 与所有扩展均无更新，则直接结束，不产生提交或 Release。
 
@@ -127,15 +130,16 @@ Auto 工作流始终检出 `master`，每天北京时间 `08:00`（`UTC 00:00`�
 | 参数 | 默认值 | 说明 |
 | --- | --- | --- |
 | `check_vscode` | `true` | 设为 `false` 时保留当前 VS Code 版本，仅检查兼容扩展更新 |
-| `dry_run` | `false` | 设为 `true` 时仍在 runner 中更新配置和锁文件、有变化时执行校验，但不提交、不打标签、不发布 |
+| `dry_run` | `false` | 设为 `true` 时仍在 runner 中更新配置和锁文件、有变化时执行 Python 3.13 测试及配置/锁文件校验，但不提交、不调用完整 CI、不打标签、不发布 |
 
 Auto 使用 `GITHUB_TOKEN` 推送提交和标签，[这类推送不会触发新的 `push` 工作流](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)。
-因此自动更新不会触发独立的 CI，也不会通过标签推送重复触发 Release；发布由 Auto 中的
-`release` job 通过 `workflow_call` 显式调用。自动更新链路执行 Python 3.13 测试和配置/锁文件校验，
-不包含 CI 中的 Python 3.10–3.12 测试及 Windows PowerShell 语法校验。
+Auto 会在同一次运行中显式调用 CI 和 Release，依赖顺序为 `update → ci → tag → release`，
+不会依靠机器人推送触发新的独立运行。CI 和标签均绑定更新步骤输出的提交 SHA，即使期间
+`master` 有其他提交，也会检查并发布同一份代码。CI 失败时，已推送的 `master` 提交保留，
+后续打标签和发布步骤均跳过。
 
 若提交或标签已经推送，但后续发包失败，再次运行 Auto 且未检测到更新时不会自动补发。
-已有标签时可手动运行 Release 并指定该标签；如果只有提交成功、标签尚未推送，则需先补建并推送标签。
+可在该次 Auto 运行中重试失败的作业；已有通过 CI 的标签时，也可手动运行 Release 并指定该标签。
 
 仓库已提供 `config/` 作为 GitHub Actions 和本地打包共用的配置源。直接编辑其中的
 `settings.json`、`keybindings.json`、`tasks.json`、`mcp.json`，或在 `snippets/` 中增删
@@ -708,11 +712,11 @@ Profile ID 目录；共享资源设置相应的 `useDefaultFlags`。它们由 `-
 python3 -m unittest discover -s src/tests -v
 ```
 
-CI 工作流在推送到 `master` 或创建、更新 PR 时，在 Linux 上使用 Python 3.10–3.13
-运行测试并校验已提交的配置/锁文件，还会在 Windows PowerShell 上渲染并解析生成的
-`install.ps1`。Auto 的机器人推送不会触发这套完整 CI；Auto 和 Release 各自执行
-Python 3.13 单元测试。这些静态和单元测试不等同于真实 Windows 离线安装；发布前仍应
-在目标机执行安装验收。
+CI 工作流在推送到 `master`、创建或更新 PR，或由 Auto 调用时，在 Linux 上使用
+Python 3.10–3.13 运行测试并校验已提交的配置/锁文件，还会在 Windows PowerShell 上
+渲染并解析生成的 `install.ps1`。Auto 显式传入更新后的提交 SHA；普通 push 和 PR
+运行默认检查触发事件的提交，PR 默认检查合并结果。这些静态和单元测试不等同于真实
+Windows 离线安装；发布前仍应在目标机执行安装验收。
 
 Marketplace 接口不需要令牌。元数据查询和文件下载都会指数退避重试三次；
 下载先写入 `.part` 文件，完成后再原子替换。下载后还会验证 VSIX ZIP 结构及

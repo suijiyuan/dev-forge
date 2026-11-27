@@ -5,6 +5,13 @@ on:
     branches:
       - master
   pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch, or tag to check; defaults to the triggering commit"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +28,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
@@ -37,6 +46,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"

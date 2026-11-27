@@ -33,7 +33,8 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
     outputs:
       changed: ${{ steps.check.outputs.changed }}
-      tag: ${{ steps.publish.outputs.tag }}
+      sha: ${{ steps.commit.outputs.sha }}
+      target_version: ${{ steps.check.outputs.target_version }}
 
     steps:
       - name: Check out master
@@ -68,12 +69,11 @@ jobs:
           python -m unittest discover -s src/tests -v
           python -c 'from pathlib import Path; from dev_forge.core import collect_extension_ids, load_config, load_extension_lock; c=load_config(Path("packager.jsonc").resolve()); load_extension_lock(Path("packager.lock.json"), c.version, c.arch, collect_extension_ids(c))'
 
-      - name: Commit, push to master, and create tag
-        id: publish
+      - name: Commit and push to master
+        id: commit
         if: steps.check.outputs.changed == 'true' && inputs.dry_run != true
         shell: bash
         env:
-          TARGET_VERSION: ${{ steps.check.outputs.target_version }}
           COMMIT_MESSAGE: ${{ steps.check.outputs.commit_message }}
         run: |
           set -euo pipefail
@@ -88,6 +88,42 @@ jobs:
           git add packager.jsonc packager.lock.json
           git commit -m "$COMMIT_MESSAGE"
           git push origin HEAD:master
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: Validate updated commit
+    needs: update
+    if: needs.update.outputs.changed == 'true' && inputs.dry_run != true
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.update.outputs.sha }}
+
+  tag:
+    name: Tag validated commit
+    needs: [update, ci]
+    if: needs.update.outputs.changed == 'true' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.publish.outputs.tag }}
+
+    steps:
+      - name: Check out validated commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.update.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Create and push release tag
+        id: publish
+        shell: bash
+        env:
+          TARGET_VERSION: ${{ needs.update.outputs.target_version }}
+          RELEASE_SHA: ${{ needs.update.outputs.sha }}
+        run: |
+          set -euo pipefail
 
           today="$(TZ=Asia/Shanghai date +%Y%m%d)"
           prefix="v${TARGET_VERSION}.${today}."
@@ -100,16 +136,16 @@ jobs:
           done < <(git tag -l "${prefix}*")
 
           next_tag="${prefix}$((max_seq + 1))"
-          git tag "$next_tag"
+          git tag "$next_tag" "$RELEASE_SHA"
           git push origin "$next_tag"
           echo "tag=${next_tag}" >> "$GITHUB_OUTPUT"
 
   release:
     name: Build ZIP and publish GitHub Release
-    needs: update
-    if: needs.update.outputs.changed == 'true' && inputs.dry_run != true
+    needs: tag
+    if: needs.tag.outputs.tag != ''
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml
     with:
-      tag: ${{ needs.update.outputs.tag }}
+      tag: ${{ needs.tag.outputs.tag }}
